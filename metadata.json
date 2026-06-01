@@ -1,0 +1,6 @@
+{
+  "name": "Deriv Radar",
+  "description": "Professional low-latency Deriv Digit Analysis and tactical trading assistant.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
