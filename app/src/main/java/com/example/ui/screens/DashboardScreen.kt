@@ -99,6 +99,7 @@ fun DashboardScreen(
             if (activePacket != null) {
                 DetailedPacketPanel(
                     packet = activePacket!!,
+                    viewModel = viewModel,
                     onNavigateToPredictions = onNavigateToPredictions
                 )
             } else {
@@ -572,6 +573,7 @@ fun MultiMarketScannerRow(
 @Composable
 fun DetailedPacketPanel(
     packet: CompleteDataPacket,
+    viewModel: DigitAnalysisViewModel,
     onNavigateToPredictions: () -> Unit
 ) {
     val animateMomentum by animateFloatAsState(targetValue = packet.momentumScore, animationSpec = tween(500), label = "momentum")
@@ -926,6 +928,217 @@ fun DetailedPacketPanel(
                     color = Color(0xFFFBBF24),
                     trackColor = Color(0xFFFBBF24).copy(alpha = 0.1f)
                 )
+            }
+        }
+
+        // --- HIGH-FREQUENCY LIVE DEBUG ANALYZER PANEL ---
+        val unifiedState by viewModel.unifiedTickState.collectAsState()
+        
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(16.dp)),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0F101A))
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Header row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically, 
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(if (packet.isStableConnection) Color(0xFF10B981) else Color(0xFFEF4444))
+                        )
+                        Text(
+                            text = "HF GATEKEEPER DEBUGGER",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                    
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color.White.copy(alpha = 0.05f)
+                    ) {
+                        Text(
+                            text = unifiedState?.globalRegime ?: "INITIALIZING",
+                            color = Color.LightGray,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = Color.White.copy(alpha = 0.04f))
+
+                // Stability score numeric/visual
+                val stabilityFloat = unifiedState?.stabilityScore ?: 0f
+                val isApproved = stabilityFloat >= 40.0f
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = String.format(Locale.US, "ALGORITHMIC MARKET STABILITY: %.1f%%", stabilityFloat),
+                            color = Color.Gray,
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = if (isApproved) "HIGH CONVICTION: GATE PASSED" else "CHOPPY DEAD ZONE: LOCKED OUT",
+                            color = if (isApproved) Color(0xFF10B981) else Color(0xFFEF4444),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (isApproved) Color(0xFF10B981).copy(alpha = 0.15f) else Color(0xFFEF4444).copy(alpha = 0.15f))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = if (isApproved) "SAFE 🛡️" else "CHOPPY 🛑",
+                            color = if (isApproved) Color(0xFF10B981) else Color(0xFFEF4444),
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Black,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+
+                LinearProgressIndicator(
+                    progress = { (stabilityFloat / 100f).coerceIn(0f, 1f) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .clip(CircleShape),
+                    color = if (isApproved) Color(0xFF10B981) else Color(0xFFEF4444),
+                    trackColor = Color.White.copy(alpha = 0.05f)
+                )
+
+                // Render Risky vs Safer tracks
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Risky (Sniper Mode)
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.White.copy(alpha = 0.02f))
+                            .border(1.dp, Color.White.copy(alpha = 0.04f), RoundedCornerShape(8.dp))
+                            .padding(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "🎯 RISKY (SNIPER)",
+                                color = Color.White,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(if (unifiedState?.riskyProfile?.isSafeToExecute == true) Color(0xFF10B981) else Color(0xFFEF4444))
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        val track = unifiedState?.riskyProfile
+                        Text(
+                            text = "CONTRACT: ${track?.contractType ?: "N/A"}",
+                            color = Color.LightGray,
+                            fontSize = 8.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            text = "BARRIER: ${track?.barrierParameter ?: "N/A"}",
+                            color = Color.LightGray,
+                            fontSize = 8.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            text = "PAYOUT: ${track?.brokerPayoutPct ?: "0%"}",
+                            color = Color(0xFF10B981),
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+
+                    // Less Risky (Safety Net)
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.White.copy(alpha = 0.02f))
+                            .border(1.dp, Color.White.copy(alpha = 0.04f), RoundedCornerShape(8.dp))
+                            .padding(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "🛡️ SAFER (NET)",
+                                color = Color.White,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(if (unifiedState?.saferProfile?.isSafeToExecute == true) Color(0xFF10B981) else Color(0xFFEF4444))
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        val track = unifiedState?.saferProfile
+                        Text(
+                            text = "CONTRACT: ${track?.contractType ?: "N/A"}",
+                            color = Color.LightGray,
+                            fontSize = 8.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            text = "BARRIER: ${track?.barrierParameter ?: "N/A"}",
+                            color = Color.LightGray,
+                            fontSize = 8.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            text = "PAYOUT: ${track?.brokerPayoutPct ?: "0%"}",
+                            color = Color(0xFF10B981),
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
             }
         }
 

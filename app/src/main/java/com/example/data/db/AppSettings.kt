@@ -24,5 +24,14 @@ data class AppSettings(
     val capital: Double = 1000.0,
     val currency: String = "USD",
     val goal: String = "",
-    val isDarkMode: Boolean = true
+    val isDarkMode: Boolean = true,
+    val riskProfile: String = "LESS_RISKY", // "RISKY" or "LESS_RISKY"
+    val virtualTradeCloseTicks: Int = 1,    // Number of ticks used to close virtual trades (1 to 10)
+    val signalNotificationCooldownSecs: Int = 30, // Cooldown between push notifications in seconds
+    val customContract: String = "ALL",     // "ALL" or precise format (e.g., "OVER 3", "UNDER 5")
+    val triggerLowerOdds: Boolean = true,
+    val triggerLowerEvens: Boolean = true,
+    val triggerHigherOdds: Boolean = true,
+    val triggerHigherEvens: Boolean = true,
+    val alertBehavior: String = "VIB_AND_NOTIF" // "VIB_ONLY", "NOTIF_ONLY", "VIB_AND_NOTIF"
 )

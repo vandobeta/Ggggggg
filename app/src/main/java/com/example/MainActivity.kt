@@ -25,6 +25,7 @@ import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.FirstLaunchSetupScreen
 import com.example.ui.screens.PredictionsScreen
 import com.example.ui.screens.SettingsScreen
+import com.example.ui.screens.SignalsScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.viewmodel.DigitAnalysisViewModel
 import androidx.compose.foundation.background
@@ -141,6 +142,30 @@ class MainActivity : ComponentActivity() {
                 )
               )
               NavigationBarItem(
+                selected = currentScreen == "SIGNALS",
+                onClick = { currentScreen = "SIGNALS" },
+                icon = { 
+                  Box(contentAlignment = Alignment.Center, modifier = Modifier.size(24.dp)) {
+                    Box(modifier = Modifier.size(16.dp).border(1.5.dp, if (currentScreen == "SIGNALS") MaterialTheme.colorScheme.primary else Color.Gray, CircleShape))
+                    Box(modifier = Modifier.size(6.dp).background(if (currentScreen == "SIGNALS") MaterialTheme.colorScheme.primary else Color.Gray, CircleShape))
+                  }
+                },
+                label = { 
+                  Text(
+                    text = "RADAR SIGNALS", 
+                    fontSize = 10.sp, 
+                    fontWeight = FontWeight.Bold 
+                  ) 
+                },
+                colors = NavigationBarItemDefaults.colors(
+                  selectedIconColor = MaterialTheme.colorScheme.primary,
+                  selectedTextColor = MaterialTheme.colorScheme.primary,
+                  unselectedIconColor = Color.Gray,
+                  unselectedTextColor = Color.Gray,
+                  indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                )
+              )
+              NavigationBarItem(
                 selected = currentScreen == "SETTINGS",
                 onClick = { currentScreen = "SETTINGS" },
                 icon = { 
@@ -188,6 +213,12 @@ class MainActivity : ComponentActivity() {
                   modifier = Modifier.padding(innerPadding)
                 )
               }
+              "SIGNALS" -> {
+                SignalsScreen(
+                  viewModel = viewModel,
+                  modifier = Modifier.padding(innerPadding)
+                )
+              }
               "SETTINGS" -> {
                 SettingsScreen(
                   viewModel = viewModel,
@@ -205,169 +236,141 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun PiPWidget(viewModel: com.example.ui.viewmodel.DigitAnalysisViewModel) {
-  val activePacket by viewModel.selectedPacket.collectAsState()
-  val notifierContract by viewModel.selectedNotifierContract.collectAsState()
-  val backtestBets by viewModel.backtestBetsCount.collectAsState()
-  val backtestWins by viewModel.backtestWinsCount.collectAsState()
+  val activeSignal by viewModel.activeSignal.collectAsState()
+  val countdown by viewModel.signalCountdown.collectAsState()
+
+  var flashBgColor by remember { mutableStateOf(Color.Transparent) }
+  var isFlashingGreen by remember { mutableStateOf(false) }
+
+  // 1. Core Entry Vibration + Bright Green flash when activeSignal changes
+  LaunchedEffect(activeSignal?.id) {
+    if (activeSignal != null) {
+      viewModel.triggerSingleVibration()
+      isFlashingGreen = true
+      flashBgColor = Color(0xFF10B981).copy(alpha = 0.6f) // High-contrast solid flash
+      kotlinx.coroutines.delay(250)
+      flashBgColor = Color(0xFF10B981).copy(alpha = 0.25f) // Morph soft glow
+      kotlinx.coroutines.delay(550)
+      flashBgColor = Color.Transparent
+      isFlashingGreen = false
+    }
+  }
+
+  // 2. Pulsing Danger status Red flash when countdown <= 5s
+  LaunchedEffect(countdown) {
+    if (activeSignal != null && !isFlashingGreen) {
+      if (countdown <= 5 && countdown > 0) {
+        flashBgColor = if (countdown % 2 == 0) {
+          Color(0xFFEF4444).copy(alpha = 0.45f) // Blink high
+        } else {
+          Color(0xFFEF4444).copy(alpha = 0.15f) // Blink low
+        }
+      } else {
+        flashBgColor = Color.Transparent
+      }
+    }
+  }
 
   Box(
     modifier = Modifier
       .fillMaxSize()
       .background(Color(0xFF090A0E))
+      .background(flashBgColor) // Dynamic flash overlay background
       .padding(8.dp),
     contentAlignment = Alignment.Center
   ) {
-    if (activePacket != null) {
-      val packet = activePacket!!
+    if (activeSignal != null) {
+      val signal = activeSignal!!
       Column(
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+        verticalArrangement = Arrangement.SpaceBetween,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.fillMaxSize()
       ) {
-        // Row 1: Header + Symbol
+        // Line 1: Header + Symbol
         Row(
           modifier = Modifier.fillMaxWidth(),
           horizontalArrangement = Arrangement.SpaceBetween,
           verticalAlignment = Alignment.CenterVertically
         ) {
           Text(
-            text = packet.displayName.uppercase(),
+            text = signal.displayName.uppercase(),
             color = Color(0xFF38BDF8),
             fontSize = 9.sp,
+            fontWeight = FontWeight.Black,
+            fontFamily = FontFamily.Monospace
+          )
+
+          Text(
+            text = "${countdown}S",
+            color = if (countdown <= 5) Color(0xFFEF4444) else Color.White,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Black,
+            fontFamily = FontFamily.Monospace
+          )
+        }
+
+        // Line 2: Recommendation Block (Large font matching UNDER / OVER / DIFFERS)
+        Column(
+          horizontalAlignment = Alignment.CenterHorizontally,
+          verticalArrangement = Arrangement.spacedBy(1.dp)
+        ) {
+          val highlightColor = when (signal.contractType) {
+            "UNDER" -> Color(0xFF34D399)
+            "OVER" -> Color(0xFFFBBF24)
+            else -> Color(0xFF818CF8) // Indigo/Blue-purple for DIFFERS
+          }
+          
+          Text(
+            text = "${signal.contractType} ${signal.barrier}",
+            color = highlightColor,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Black,
+            fontFamily = FontFamily.Monospace
+          )
+          
+          Text(
+            text = "Payout: ${signal.payoutPct} | ${signal.probabilityEst.toInt()}% Win",
+            color = Color.LightGray.copy(alpha = 0.7f),
+            fontSize = 7.5.sp,
+            fontFamily = FontFamily.Monospace
+          )
+        }
+
+        // Line 3: Candidates list & warning indicator
+        Row(
+          modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(4.dp))
+            .background(Color.White.copy(alpha = 0.05f))
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          Text(
+            text = "HOT: ${signal.candidates.joinToString(",")}",
+            color = Color.Gray,
+            fontSize = 8.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = FontFamily.Monospace
           )
 
           Text(
-            text = "PiP Monitor",
-            color = Color.LightGray.copy(alpha = 0.5f),
+            text = if (countdown <= 5) "DANGER ⛔" else "ACTIVE 📡",
+            color = if (countdown <= 5) Color(0xFFEF4444) else Color(0xFF10B981),
             fontSize = 8.sp,
+            fontWeight = FontWeight.Black,
             fontFamily = FontFamily.Monospace
           )
-        }
-
-        // Row 2: Last digit stream
-        Row(
-          horizontalArrangement = Arrangement.spacedBy(4.dp),
-          verticalAlignment = Alignment.CenterVertically
-        ) {
-          val lastDigits = packet.tickHistory.takeLast(5)
-          lastDigits.forEachIndexed { i, d ->
-            val isLatest = i == lastDigits.lastIndex
-            Box(
-              modifier = Modifier
-                .size(if (isLatest) 20.dp else 15.dp)
-                .clip(CircleShape)
-                .background(if (isLatest) Color(0xFFFBBF24) else Color.White.copy(alpha = 0.08f))
-                .border(
-                  1.dp,
-                  if (isLatest) Color(0xFFFBBF24) else Color.White.copy(alpha = 0.2f),
-                  CircleShape
-                ),
-              contentAlignment = Alignment.Center
-            ) {
-              Text(
-                text = d.toString(),
-                color = if (isLatest) Color.Black else Color.White,
-                fontSize = if (isLatest) 10.sp else 8.sp,
-                fontWeight = FontWeight.Black,
-                fontFamily = FontFamily.Monospace
-              )
-            }
-          }
-        }
-
-        // Row 3: Automated filter representation
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.SpaceBetween,
-          verticalAlignment = Alignment.CenterVertically
-        ) {
-          Column {
-            Text(
-              text = "NOTIFIER",
-              color = Color.Gray,
-              fontSize = 7.sp,
-              fontFamily = FontFamily.Monospace
-            )
-            Text(
-              text = notifierContract ?: "ALL ACTIVE",
-              color = MaterialTheme.colorScheme.primary,
-              fontSize = 9.sp,
-              fontWeight = FontWeight.Bold
-            )
-          }
-
-          // Compute selected contract strategic recommendation
-          val displayRecommendCandidate = if (packet.predictionsList.isNotEmpty()) {
-            val best = packet.predictionsList.first()
-            if (notifierContract == "OVER") {
-              "Over ${if (best.digit >= 6) 6 else 5}"
-            } else if (notifierContract == "UNDER") {
-              "Under ${if (best.digit <= 4) 4 else 5}"
-            } else {
-              "D${best.digit} [${String.format("%.0f%%", best.confidence)}]"
-            }
-          } else {
-            "..."
-          }
-
-          Column(horizontalAlignment = Alignment.End) {
-            Text(
-              text = "REVERSION",
-              color = Color.Gray,
-              fontSize = 7.sp,
-              fontFamily = FontFamily.Monospace
-            )
-            Text(
-              text = displayRecommendCandidate,
-              color = Color.White,
-              fontSize = 9.sp,
-              fontWeight = FontWeight.Bold,
-              fontFamily = FontFamily.Monospace
-            )
-          }
-        }
-
-        // Row 4: Backtest Win Ratio for current selected index
-        val currentBestDigit = packet.predictionsList.firstOrNull()?.digit ?: 0
-        val wins = backtestWins[currentBestDigit] ?: 0
-        val bets = backtestBets[currentBestDigit] ?: 0
-        val winRate = if (bets > 0) (wins.toFloat() / bets.toFloat() * 100f) else 0f
-
-        Surface(
-          shape = RoundedCornerShape(4.dp),
-          color = Color.White.copy(alpha = 0.05f),
-          modifier = Modifier.fillMaxWidth()
-        ) {
-          Row(
-            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-          ) {
-            Text(
-              text = "BACKTEST WR D$currentBestDigit:",
-              color = Color.White.copy(alpha = 0.6f),
-              fontSize = 8.sp,
-              fontWeight = FontWeight.Bold,
-              fontFamily = FontFamily.Monospace
-            )
-            Text(
-              text = if (bets > 0) String.format("%.1f%%", winRate) else "No tx yet",
-              color = if (winRate >= 70f) Color(0xFF10B981) else if (winRate >= 50f) Color(0xFFFBBF24) else Color.White,
-              fontSize = 8.sp,
-              fontWeight = FontWeight.Black,
-              fontFamily = FontFamily.Monospace
-            )
-          }
         }
       }
     } else {
       Text(
-        text = "PiP Monitor Active.\nAwaiting stream...",
+        text = "TACTICAL RADAR ACTIVE\nAwaiting signal stream...",
         color = Color.Gray,
         fontSize = 8.sp,
         fontFamily = FontFamily.Monospace,
-        textAlign = TextAlign.Center
+        textAlign = TextAlign.Center,
+        lineHeight = 11.sp
       )
     }
   }

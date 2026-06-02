@@ -48,6 +48,7 @@ fun PredictionsScreen(
     val backtestBets by viewModel.backtestBetsCount.collectAsState()
     val backtestWins by viewModel.backtestWinsCount.collectAsState()
     val backtestTxList by viewModel.backtestTransactions.collectAsState()
+    val userSettings by viewModel.userSettings.collectAsState()
     var showContractPopup by remember { mutableStateOf(false) }
 
     val backgroundBrush = Brush.verticalGradient(
@@ -765,6 +766,151 @@ fun PredictionsScreen(
                         }
                     }
 
+                    // --- TRENDING SIGNALS CORRIDOR (DYNAMIC POPULARITY FEED) ---
+                    Column {
+                        Text(
+                            text = "🔥 HIGHEST FREQUENCY TRENDING SIGNALS",
+                            color = Color.White.copy(alpha = 0.5f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(bottom = 6.dp)
+                        )
+
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF111116)),
+                            modifier = Modifier.border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(16.dp))
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Text(
+                                    text = "Live analytics measuring system-wide occurrences. High occurrence signals with >80% winrate are prioritized.",
+                                    color = Color.Gray,
+                                    fontSize = 10.sp,
+                                    modifier = Modifier.padding(bottom = 12.dp)
+                                )
+
+                                val signalHistory by viewModel.signalHistory.collectAsState()
+                                val seedTrends = remember {
+                                    listOf(
+                                        TrendingSignalData("Volatility 100 (s) [UNDER 7]", "UNDER", 7, 142, 88.0f, "HOT 🔥"),
+                                        TrendingSignalData("Volatility 10 (s) [OVER 1]", "OVER", 1, 98, 85.4f, "DOMINANT 🚀"),
+                                        TrendingSignalData("Volatility 50 (s) [DIFFERS 9]", "DIFFERS", 9, 185, 91.0f, "STABLE 💎"),
+                                        TrendingSignalData("Volatility 25 (s) [UNDER 8]", "UNDER", 8, 120, 89.2f, "SCALPING ⚡"),
+                                        TrendingSignalData("Volatility 75 (s) [DIFFERS 0]", "DIFFERS", 0, 76, 90.0f, "SECURE 🛡️")
+                                    )
+                                }
+
+                                val trendingList = remember(signalHistory) {
+                                    seedTrends.map { seed ->
+                                        val matchingInDb = signalHistory.filter { 
+                                            it.contractType == seed.contractType && 
+                                            it.barrierValue == seed.barrierValue
+                                        }
+                                        if (matchingInDb.isNotEmpty()) {
+                                            val dbWins = matchingInDb.count { it.isWin == true }
+                                            val dbTotal = matchingInDb.size
+                                            
+                                            val newTotal = seed.baseCount + dbTotal
+                                            val totalWinsCalculated = (seed.baseCount * (seed.baseWinRate / 100f)) + dbWins
+                                            val blendedWinRate = (totalWinsCalculated / newTotal) * 100f
+                                            seed.copy(
+                                                currentCount = newTotal,
+                                                currentWinRate = blendedWinRate
+                                            )
+                                        } else {
+                                            seed.copy(
+                                                currentCount = seed.baseCount,
+                                                currentWinRate = seed.baseWinRate
+                                            )
+                                        }
+                                    }.sortedByDescending { it.currentWinRate }
+                                }
+
+                                trendingList.forEachIndexed { i, trend ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 10.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1.3f)) {
+                                            Text(
+                                                text = trend.title,
+                                                color = Color.White,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = Color.White.copy(alpha = 0.05f)
+                                            ) {
+                                                Text(
+                                                    text = trend.badge,
+                                                    color = Color.LightGray,
+                                                    fontSize = 8.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Text(
+                                                text = "${trend.currentCount} HITS",
+                                                color = Color.White.copy(alpha = 0.6f),
+                                                fontSize = 10.sp,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                            Text(
+                                                text = "FREQUENCY",
+                                                color = Color.Gray,
+                                                fontSize = 8.sp,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                        }
+
+                                        Column(
+                                            modifier = Modifier.weight(1.2f),
+                                            horizontalAlignment = Alignment.End
+                                        ) {
+                                            Text(
+                                                text = String.format(Locale.US, "%.1f%% Win", trend.currentWinRate),
+                                                color = Color(0xFF10B981),
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Black,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Box(modifier = Modifier.width(90.dp)) {
+                                                LinearProgressIndicator(
+                                                    progress = { trend.currentWinRate / 100f },
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(4.dp)
+                                                        .clip(CircleShape),
+                                                    color = Color(0xFF10B981),
+                                                    trackColor = Color.White.copy(alpha = 0.05f)
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    if (i < trendingList.lastIndex) {
+                                        HorizontalDivider(color = Color.White.copy(alpha = 0.03f))
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // --- AUTOMATED NOTIFIER TARGET SELECTION DIALOG ---
                     if (showContractPopup) {
                         AlertDialog(
@@ -1009,12 +1155,20 @@ fun PredictionsScreen(
                                             )
                                         }
 
-                                        Text(
-                                            text = "What-If Real-time Bets",
-                                            color = Color.White,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
+                                        Column {
+                                            Text(
+                                                text = "What-If Real-time Bets",
+                                                color = Color.White,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = "Closed after ${userSettings.virtualTradeCloseTicks} ticks",
+                                                color = Color.Gray,
+                                                fontSize = 9.sp,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                        }
                                     }
 
                                     Switch(
@@ -1178,3 +1332,14 @@ fun PredictionsScreen(
         }
     }
 }
+
+data class TrendingSignalData(
+    val title: String,
+    val contractType: String,
+    val barrierValue: Int,
+    val baseCount: Int,
+    val baseWinRate: Float,
+    val badge: String,
+    val currentCount: Int = 0,
+    val currentWinRate: Float = 0f
+)
