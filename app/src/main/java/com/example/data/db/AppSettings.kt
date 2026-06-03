@@ -33,5 +33,17 @@ data class AppSettings(
     val triggerLowerEvens: Boolean = true,
     val triggerHigherOdds: Boolean = true,
     val triggerHigherEvens: Boolean = true,
-    val alertBehavior: String = "VIB_AND_NOTIF" // "VIB_ONLY", "NOTIF_ONLY", "VIB_AND_NOTIF"
+    val alertBehavior: String = "VIB_AND_NOTIF", // "VIB_ONLY", "NOTIF_ONLY", "VIB_AND_NOTIF"
+    val cushionSpacing: Int = 2, // Safety barrier cushion spacing (1 to 4)
+    val derivToken: String = "",
+    val autoTraderEnabled: Boolean = false,
+    val autoTraderStake: Double = 1.0,
+    val autoTraderTakeProfit: Double = 10.0,
+    val autoTraderStopLoss: Double = 15.0,
+    val autoTraderTrailingStopLoss: Boolean = false,
+    val autoTraderCompoundingStake: Boolean = true,
+    val derivWalletBalance: Double = 1000.0,
+    val isDemoAccount: Boolean = true,
+    val demoWalletBalance: Double = 10000.0,
+    val realWalletBalance: Double = 100.0
 )

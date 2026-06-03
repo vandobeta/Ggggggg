@@ -51,7 +51,7 @@ fun FirstLaunchSetupScreen(
     var isHighPingOverridden by remember { mutableStateOf(false) }
     val pingToShow = if (isSimulatingHighPing) 324L else realPing
     
-    var currentStep by remember { mutableStateOf(1) } // Steps 1 to 3
+    var currentStep by remember { mutableStateOf(1) } // Steps 1 to 4
     
     // Step 1 Form States
     var nameInput by remember { mutableStateOf("") }
@@ -60,9 +60,12 @@ fun FirstLaunchSetupScreen(
     var goalInput by remember { mutableStateOf("To maintain steady gains with cool head.") }
     
     // Step 2 Form States
+    var derivTokenInput by remember { mutableStateOf("") }
+    
+    // Step 3 Form States
     var disclaimerAccepted by remember { mutableStateOf(false) }
     
-    // Step 3 Permissions Status Placeholder Checks
+    // Step 4 Permissions Status Placeholder Checks
     var notificationsGranted by remember { mutableStateOf(false) }
     var batteryGranted by remember { mutableStateOf(false) }
 
@@ -125,19 +128,19 @@ fun FirstLaunchSetupScreen(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    for (step in 1..3) {
+                    for (step in 1..4) {
                         val active = step == currentStep
                         val passed = step < currentStep
                         Box(
                             modifier = Modifier
-                                .size(height = 6.dp, width = 45.dp)
+                                .size(height = 6.dp, width = 35.dp)
                                 .clip(RoundedCornerShape(3.dp))
                                 .background(
                                     when {
                                         active -> MaterialTheme.colorScheme.primary
                                         passed -> Color(0xFF10B981)
                                         else -> Color.White.copy(alpha = 0.15f)
-                                    }
+                                      }
                                 )
                         )
                     }
@@ -176,11 +179,15 @@ fun FirstLaunchSetupScreen(
                             goal = goalInput,
                             onGoalChange = { goalInput = it }
                         )
-                        2 -> StepDisclaimers(
+                        2 -> StepDerivTokenSetup(
+                            token = derivTokenInput,
+                            onTokenChange = { derivTokenInput = it }
+                        )
+                        3 -> StepDisclaimers(
                             disclaimerAccepted = disclaimerAccepted,
                             onDisclaimerAcceptedChange = { disclaimerAccepted = it }
                         )
-                        3 -> StepPermissionsAndIgnition(
+                        4 -> StepPermissionsAndIgnition(
                             context = context,
                             notificationsGranted = notificationsGranted,
                             batteryGranted = batteryGranted,
@@ -238,14 +245,15 @@ fun FirstLaunchSetupScreen(
 
                 val nextEnabled = when (currentStep) {
                     1 -> nameInput.trim().isNotBlank() && capitalInput.trim().toDoubleOrNull() != null
-                    2 -> disclaimerAccepted
-                    3 -> if (pingToShow > 200L) isHighPingOverridden else true
+                    2 -> derivTokenInput.trim().isNotBlank()
+                    3 -> disclaimerAccepted
+                    4 -> if (pingToShow > 200L) isHighPingOverridden else true
                     else -> true
                 }
 
                 Button(
                     onClick = {
-                        if (currentStep < 3) {
+                        if (currentStep < 4) {
                             currentStep++
                         } else {
                             // Activation! Save all states to Room setting isFirstLaunch = false
@@ -255,21 +263,27 @@ fun FirstLaunchSetupScreen(
                                 capital = finalCapital,
                                 currency = selectedCurrency,
                                 goal = goalInput.trim(),
+                                derivToken = derivTokenInput.trim(),
                                 isFirstLaunch = false
                             )
                             viewModel.updateSettingsInDb(finalSettings)
+
+                            // Persistent SharedPreferences so it never shows up again on startup
+                            val sharedPrefs = context.getSharedPreferences("deriv_radar_prefs", android.content.Context.MODE_PRIVATE)
+                            sharedPrefs.edit().putBoolean("setup_completed", true).apply()
+
                             Toast.makeText(context, "Welcome, Trader ${nameInput.trim()}! Algo-Radar Fired up.", Toast.LENGTH_LONG).show()
                         }
                     },
                     enabled = nextEnabled,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (currentStep == 3) Color(0xFF10B981) else MaterialTheme.colorScheme.primary,
+                        containerColor = if (currentStep == 4) Color(0xFF10B981) else MaterialTheme.colorScheme.primary,
                         disabledContainerColor = Color.White.copy(alpha = 0.04f)
                     ),
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(
-                        text = if (currentStep == 3) "🚨 ACTIVATE RADAR PLATFORM" else "CONTINUE SETUP",
+                        text = if (currentStep == 4) "🚨 ACTIVATE RADAR PLATFORM" else "CONTINUE SETUP",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.ExtraBold,
                         fontFamily = FontFamily.Monospace,
@@ -808,6 +822,90 @@ fun StepPermissionsAndIgnition(
                 fontSize = 10.sp,
                 textAlign = TextAlign.Center
             )
+        }
+    }
+}
+
+@Composable
+fun StepDerivTokenSetup(
+    token: String,
+    onTokenChange: (String) -> Unit
+) {
+    val scrollState = rememberScrollState()
+    
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Text(
+            text = "STEP 2: SECURE DERIV WS API TOKEN",
+            color = Color.LightGray,
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp,
+            fontFamily = FontFamily.Monospace
+        )
+        
+        Text(
+            text = "To allow the Algo-Radar automated co-pilot to trade on your behalf, enter your secure Deriv WebSocket API Token.",
+            color = Color.Gray,
+            fontSize = 11.sp
+        )
+
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("DERIV SECURE WS API TOKEN", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+            OutlinedTextField(
+                value = token,
+                onValueChange = onTokenChange,
+                placeholder = { Text("Paste your Deriv WS API Token here", color = Color.DarkGray) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = Color.White.copy(alpha = 0.1f)
+                )
+            )
+        }
+
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color.Yellow.copy(alpha = 0.03f)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(0.5.dp, Color.Yellow.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = "Security Alert",
+                        tint = Color(0xFFFBBF24),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "EXCLUSIVE TOKEN DISCLAIMER",
+                        color = Color(0xFFFBBF24),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Text(
+                    text = "• LOCAL ENCRYPTED STORAGE: Your API token is saved directly in a secure, local Room SQLite database on your device. It is never uploaded to any remote analytics or central web servers.\n\n• DECENTRALIZED AND SECURE: Algo-Radar acts purely as a self-custodial high-frequency processor. The developer holds zero capability to read your tokens or access your private capital.\n\n• MINIMUM SCOPE POLICY: We highly recommend generating a token on your Deriv web dashboard with ONLY the 'Read' (to stream prices) and 'Trade' (to place contract transactions) scopes enabled. Do NOT enable 'Admin' or 'Payments' authority to secure your funds.\n\n• VOLATILITY RISK: Automated contracts are susceptible to internet outages, server latency, slippages, and volatile price actions. Double check your settings before enabling live autopilot.",
+                    color = Color.LightGray,
+                    fontSize = 10.5.sp,
+                    lineHeight = 15.sp
+                )
+            }
         }
     }
 }

@@ -866,6 +866,41 @@ fun SettingsScreen(
 
                     HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
 
+                    // Slider 1.5: Adaptive Signal Cushion Spacing
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Safety Cushion Spacing", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text("Controls target barrier shift distance to insulate against tail risk", color = Color.Gray, fontSize = 9.sp)
+                            }
+                            Text(
+                                text = "±${userSettings.cushionSpacing} digits",
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                        Slider(
+                            value = userSettings.cushionSpacing.toFloat(),
+                            onValueChange = {
+                                viewModel.updateSettingsInDb(userSettings.copy(cushionSpacing = it.toInt()))
+                            },
+                            valueRange = 1f..4f,
+                            steps = 2,
+                            colors = SliderDefaults.colors(
+                                thumbColor = MaterialTheme.colorScheme.primary,
+                                activeTrackColor = MaterialTheme.colorScheme.primary
+                            )
+                        )
+                    }
+
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+
                     // Slider 2: Push Notification Cooldown
                     Column {
                         Row(
@@ -1030,68 +1065,354 @@ fun SettingsScreen(
                 }
             }
 
-            // --- IMMEDIATE TEST ALARM ACTION CORRIDOR ---
+            // --- DERIV AUTOMATED CO-PILOT SETTINGS PANEL ---
             Card(
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)),
-                modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.03f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+                    .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(16.dp))
             ) {
                 Column(
-                    modifier = Modifier.padding(14.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Test Fire",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
                         Text(
-                            text = "SIMULATE ALGO ALARM REMINDER",
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
+                            text = "🤖 DERIV AUTOMATED CO-PILOT",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Black,
                             fontFamily = FontFamily.Monospace
                         )
                     }
 
                     Text(
-                        text = "Click to trigger an instant system-level trade signal reminder right now. Verify that channel and notification triggers are working properly in this sandboxed preview.",
-                        color = Color.LightGray.copy(alpha = 0.8f),
-                        fontSize = 10.sp,
-                        textAlign = TextAlign.Center
+                        text = "Connect your secure Deriv WS Token to place automated contracts on parity signals with smart risk management.",
+                        color = Color.Gray,
+                        fontSize = 11.sp
                     )
 
-                    Button(
-                        onClick = { viewModel.fireTestAlarm() },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        shape = RoundedCornerShape(10.dp),
+                    // Wallet Balance Display
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(42.dp)
-                            .testTag("test_fire_alarm_button")
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.White.copy(alpha = 0.05f))
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "🔔 TEST ALARM (TODAY: $triggeredToday / ${userSettings.signalsPerDayLimit})",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
+                        Column {
+                            Text("CO-PILOT WALLET BALANCE", color = Color.Gray, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                            Text(
+                                text = String.format("$%.2f %s", userSettings.derivWalletBalance, userSettings.currency.uppercase()),
+                                color = Color.White,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                viewModel.updateSettingsInDb(userSettings.copy(derivWalletBalance = 1000.0))
+                                viewModel.resetAutoTraderSession()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            modifier = Modifier.testTag("reset_wallet_balance_button")
+                        ) {
+                            Text("Reset", color = MaterialTheme.colorScheme.primary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    // Secure Deriv Token Input
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("DERIV SECURE WS TOKEN", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        OutlinedTextField(
+                            value = userSettings.derivToken,
+                            onValueChange = {
+                                viewModel.updateSettingsInDb(userSettings.copy(derivToken = it))
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("deriv_token_input"),
+                            placeholder = { Text("Paste WS API Token here", color = Color.Gray, fontSize = 12.sp) },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White,
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = Color.White.copy(alpha = 0.15f)
+                            )
                         )
                     }
 
-                    if (triggeredToday > 0) {
+                    // Auto Trader Switch
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("ENABLE AUTOMATED PILOT", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("Automatically executes contracts whenever parity signals trigger matches", color = Color.Gray, fontSize = 9.sp)
+                        }
+                        Switch(
+                            checked = userSettings.autoTraderEnabled,
+                            onCheckedChange = {
+                                viewModel.updateSettingsInDb(userSettings.copy(autoTraderEnabled = it))
+                                if (it) {
+                                    viewModel.resetAutoTraderSession()
+                                }
+                            },
+                            modifier = Modifier.testTag("auto_trader_switch"),
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = MaterialTheme.colorScheme.primary,
+                                checkedTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                            )
+                        )
+                    }
+
+                    // Auto Recommend calculations shown prominently to satisfy requirements
+                    val recStake = (userSettings.derivWalletBalance * 0.01).coerceAtLeast(1.0)
+                    val recSL = (userSettings.derivWalletBalance * 0.15).coerceAtLeast(10.0)
+                    val recTP = (userSettings.derivWalletBalance * 0.10).coerceAtLeast(5.0)
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.05f))
+                            .padding(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
                         Text(
-                            text = "Reset Signals Counter",
-                            color = MaterialTheme.colorScheme.primary,
+                            text = String.format("💡 AUTO RECOMMENDATIONS:\n• Target Stake (1%%): $%.2f\n• Stop Loss Limit (15%%): $%.2f\n• Take Profit Target (10%%): $%.2f", recStake, recSL, recTP),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
                             fontSize = 10.sp,
                             fontFamily = FontFamily.Monospace,
-                            modifier = Modifier
-                                .clickable { viewModel.resetDailySignalsCounter() }
-                                .padding(4.dp)
+                            lineHeight = 14.sp
                         )
+                    }
+
+                    // Compounding Switch
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("AUTO STAKE COMPOUNDING", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("Recalculate stake and stop loss (1% / 15%) as pilot balance increases", color = Color.Gray, fontSize = 9.sp)
+                        }
+                        Switch(
+                            checked = userSettings.autoTraderCompoundingStake,
+                            onCheckedChange = {
+                                viewModel.updateSettingsInDb(userSettings.copy(autoTraderCompoundingStake = it))
+                            },
+                            modifier = Modifier.testTag("auto_trader_compounding_switch"),
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = MaterialTheme.colorScheme.primary,
+                                checkedTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                            )
+                        )
+                    }
+
+                    // Target Stake Input
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("TARGET COMPANION STAKE (USD)", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        OutlinedTextField(
+                            value = if (userSettings.autoTraderCompoundingStake) String.format("%.2f", recStake) else userSettings.autoTraderStake.toString(),
+                            onValueChange = {
+                                if (!userSettings.autoTraderCompoundingStake) {
+                                    it.toDoubleOrNull()?.let { stake ->
+                                        viewModel.updateSettingsInDb(userSettings.copy(autoTraderStake = stake))
+                                    }
+                                }
+                            },
+                            enabled = !userSettings.autoTraderCompoundingStake,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("auto_trader_stake_input"),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White,
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = Color.White.copy(alpha = 0.15f)
+                            )
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Take Profit Input
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("TAKE PROFIT (USD)", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            OutlinedTextField(
+                                value = userSettings.autoTraderTakeProfit.toString(),
+                                onValueChange = {
+                                    it.toDoubleOrNull()?.let { tp ->
+                                        viewModel.updateSettingsInDb(userSettings.copy(autoTraderTakeProfit = tp))
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("auto_trader_take_profit_input"),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White,
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBorderColor = Color.White.copy(alpha = 0.15f)
+                                )
+                            )
+                        }
+
+                        // Stop Loss Input
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("STOP LOSS (USD)", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            OutlinedTextField(
+                                value = if (userSettings.autoTraderCompoundingStake) String.format("%.2f", recSL) else userSettings.autoTraderStopLoss.toString(),
+                                onValueChange = {
+                                    if (!userSettings.autoTraderCompoundingStake) {
+                                        it.toDoubleOrNull()?.let { sl ->
+                                            viewModel.updateSettingsInDb(userSettings.copy(autoTraderStopLoss = sl))
+                                        }
+                                    }
+                                },
+                                enabled = !userSettings.autoTraderCompoundingStake,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("auto_trader_stop_loss_input"),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White,
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBorderColor = Color.White.copy(alpha = 0.15f)
+                                )
+                            )
+                        }
+                    }
+
+                    // Trailing Stop Loss Switch
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("TRAILING STOP LOSS", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("Binds and trails SL target dynamically relative to maximum peak session profits", color = Color.Gray, fontSize = 9.sp)
+                        }
+                        Switch(
+                            checked = userSettings.autoTraderTrailingStopLoss,
+                            onCheckedChange = {
+                                viewModel.updateSettingsInDb(userSettings.copy(autoTraderTrailingStopLoss = it))
+                            },
+                            modifier = Modifier.testTag("auto_trader_trailing_sl_switch"),
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = MaterialTheme.colorScheme.primary,
+                                checkedTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                            )
+                        )
+                    }
+                }
+            }
+
+            var showDeveloperOptions by remember { mutableStateOf(false) }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showDeveloperOptions = !showDeveloperOptions }
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (showDeveloperOptions) "▲ HIDE DEVELOPER UTILITIES" else "▼ SHOW DEVELOPER UTILITIES",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black,
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = 1.sp
+                )
+            }
+
+            if (showDeveloperOptions) {
+                // --- IMMEDIATE TEST ALARM ACTION CORRIDOR ---
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)),
+                    modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Test Fire",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = "SIMULATE ALGO ALARM REMINDER",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+
+                        Text(
+                            text = "Click to trigger an instant system-level trade signal reminder right now. Verify that channel and notification triggers are working properly in this sandboxed preview.",
+                            color = Color.LightGray.copy(alpha = 0.8f),
+                            fontSize = 10.sp,
+                            textAlign = TextAlign.Center
+                        )
+
+                        Button(
+                            onClick = { viewModel.fireTestAlarm() },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(42.dp)
+                                .testTag("test_fire_alarm_button")
+                        ) {
+                            Text(
+                                text = "🔔 TEST ALARM (TODAY: $triggeredToday / ${userSettings.signalsPerDayLimit})",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        if (triggeredToday > 0) {
+                            Text(
+                                text = "Reset Signals Counter",
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier
+                                    .clickable { viewModel.resetDailySignalsCounter() }
+                                    .padding(4.dp)
+                            )
+                        }
                     }
                 }
             }

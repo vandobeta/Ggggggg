@@ -2,13 +2,26 @@ package com.example.data
 
 import kotlin.math.abs
 
+// Enriched telemetry data layer tracking individual multi-digit starvation weights
+data class PrecisionMatrixOutput(
+    val lastDigit: Int,
+    val stabilityScoreS101: Float,
+    val calculatedSpan: Int,
+    val completeCandidates: List<Int>,
+    val candidateStarvationCoefficients: List<Float>, // Maps 1:1 with positions
+    val targetContractFamily: String,
+    val calculatedBarrier: String,
+    val isFilterSequencePassed: Boolean,
+    val diagnosticLogMessage: String
+)
+
 // Represents the real-time operational status of an individual profile track
 data class ProfileExecutionTrack(
-    val contractType: String, // "UNDER" or "OVER" or "N/A"
-    val barrierParameter: String, // E.g., "1", "4", "N/A"
-    val brokerPayoutPct: String, // E.g., "~970%", "~100%"
+    val contractType: String,      // "UNDER", "OVER", "DIFFERS" or "NONE"
+    val barrierParameter: String,  // E.g., "1", "4", "N/A"
+    val brokerPayoutPct: String,   // E.g., "~970%", "~100%"
     val validationMessage: String, // "SUCCESS", "REJECTED_OUTLIER", etc.
-    val isSafeToExecute: Boolean // Final operational gate flag
+    val isSafeToExecute: Boolean   // Final operational gate flag
 )
 
 // The master state object broadcasted to your UI and Haptic managers on every tick
@@ -38,14 +51,17 @@ data class ContractValidationResult(
 
 class HighFrequencyTickProcessor {
     private val macroLookbackWindow = 50
-    private val maxExpectedDivergence = 25.0f // Scales divergence up to 100%
+    private val microLookbackWindow = 10
     private val slidingTickCache = java.util.Collections.synchronizedList(mutableListOf<Int>())
 
     /**
      * Executes the absolute top-to-bottom calculation sequence for an inbound quadrant tick.
      * Call this function every single time your Deriv WebSocket pushes a fresh tick update.
      */
-    fun processIncomingMarketTick(rawPrice: Double, targetContractFilter: String): UnifiedTickState {
+    fun processIncomingMarketTick(rawPrice: Double, targetContractFilter: String, isOneSecond: Boolean = false, cushionSpacing: Int = 2): UnifiedTickState {
+        val actualMacroSize = if (isOneSecond) 30 else macroLookbackWindow
+        val actualMicroSize = if (isOneSecond) 6 else microLookbackWindow
+
         // 1. String Isolation Layer (Extract last digit integer)
         val priceStr = rawPrice.toString()
         val extractedDigit = priceStr.substring(priceStr.length - 1).toIntOrNull() ?: 0
@@ -53,13 +69,13 @@ class HighFrequencyTickProcessor {
         // Maintain the sliding memory window thread-safely
         synchronized(slidingTickCache) {
             slidingTickCache.add(extractedDigit)
-            if (slidingTickCache.size > macroLookbackWindow) {
+            if (slidingTickCache.size > actualMacroSize) {
                 slidingTickCache.removeAt(0)
             }
         }
 
         // Handle cold-start/warm-up data phase safety net
-        if (slidingTickCache.size < macroLookbackWindow) {
+        if (slidingTickCache.size < actualMacroSize) {
             val awaitingTrack = ProfileExecutionTrack("N/A", "N/A", "0%", "Awaiting Matrix Core Data", false)
             return UnifiedTickState(extractedDigit, 0f, "AWAITING_DATA", emptyList(), awaitingTrack, awaitingTrack)
         }
@@ -69,164 +85,181 @@ class HighFrequencyTickProcessor {
 
         // 2. Compute Global Parity Balance Strain & Stability Score
         val oddCount = currentHistory.count { it % 2 != 0 }
-        val oddPercentage = (oddCount.toFloat() / macroLookbackWindow) * 100f
+        val oddPercentage = (oddCount.toFloat() / actualMacroSize) * 100f
         val evenPercentage = 100f - oddPercentage
 
         val rawDivergence = abs(oddPercentage - evenPercentage)
-        val calculatedStability = ((rawDivergence / maxExpectedDivergence) * 100f).coerceIn(0f, 100f)
+        val calculatedStability = ((rawDivergence / 25.0f) * 100f).coerceIn(0f, 100f)
 
         // HARD COOLDOWN MATRIX CHECK: If market is sideways, drop both immediately
         if (calculatedStability < 40.0f) {
-            val lockedTrack = ProfileExecutionTrack("N/A", "N/A", "0%", "CHOPPY DEAD ZONE", false)
+            val lockedTrack = ProfileExecutionTrack("NONE", "N/A", "0%", if (isOneSecond) "1S COOLDOWN" else "CHOPPY DEAD ZONE", false)
             return UnifiedTickState(extractedDigit, calculatedStability, "CHOPPY DEAD ZONE", emptyList(), lockedTrack, lockedTrack)
         }
 
         // 3. Determine Reversion Regime Targets
-        val globalRegime: String
-        val primarySearchPool: List<Int>
-        val hybridHedgePool: List<Int>
-
-        if (oddPercentage >= 55.0f) {
-            globalRegime = "REVERSION_TO_EVEN"
-            primarySearchPool = listOf(0, 2, 4, 6, 8)
-            hybridHedgePool = listOf(1, 3, 5, 7, 9)
-        } else if (evenPercentage >= 55.0f) {
-            globalRegime = "REVERSION_TO_ODD"
-            primarySearchPool = listOf(1, 3, 5, 7, 9)
-            hybridHedgePool = listOf(0, 2, 4, 6, 8)
+        val globalRegime = if (evenPercentage >= 55.0f) {
+            "REVERSION_TO_EVEN"
+        } else if (oddPercentage >= 55.0f) {
+            "REVERSION_TO_ODD"
         } else {
-            val lockedTrack = ProfileExecutionTrack("N/A", "N/A", "0%", "Insufficient Parity Strain", false)
-            return UnifiedTickState(extractedDigit, calculatedStability, "BALANCED_COOLDOWN", emptyList(), lockedTrack, lockedTrack)
+            "BALANCED_COOLDOWN"
         }
 
-        // 4. Frequency Mapping Layer (Find Starved Matrix Anomalies)
-        val digitCounts = IntArray(10)
-        currentHistory.forEach { digitCounts[it]++ }
-
-        val sortedPrimary = primarySearchPool.sortedBy { digitCounts[it] }
-        val core1 = sortedPrimary[0]
-        val core2 = sortedPrimary[1]
-
-        // 5. Four-Quadrant Spatial Zone Classification
-        val maxCore = maxOf(core1, core2)
-        val minCore = minOf(core1, core2)
-        val spatialZone = when {
-            maxCore <= 4 -> "LOWER"
-            minCore >= 5 -> "HIGHER"
-            else -> "MID_SCATTERED"
+        if (globalRegime == "BALANCED_COOLDOWN") {
+            val coolingTrack = ProfileExecutionTrack("NONE", "N/A", "0%", "BALANCED_COOLDOWN", false)
+            return UnifiedTickState(extractedDigit, calculatedStability, globalRegime, emptyList(), coolingTrack, coolingTrack)
         }
 
-        // 6. Hybrid Convergence Mix Insertion
-        val candidatesList = mutableListOf(core1, core2)
-        val hedgeDigit = when (spatialZone) {
-            "LOWER" -> hybridHedgePool.filter { it <= 4 }.minByOrNull { digitCounts[it] }
-            "HIGHER" -> hybridHedgePool.filter { it >= 5 }.minByOrNull { digitCounts[it] }
-            else -> hybridHedgePool.minByOrNull { digitCounts[it] }
-        }
-        hedgeDigit?.let { candidatesList.add(it) }
-        val final3Candidates = candidatesList.distinct().take(3)
+        // 4. UNBIASED GLOBAL STARVATION ENGINE (Scans ALL 10 digits for pure drought)
+        val macroFrequencies = IntArray(10)
+        currentHistory.forEach { macroFrequencies[it]++ }
 
-        // 7. Parallel Track Execution Compiler Engine
-        val riskyEvaluatedTrack = evaluateProfileSelection(final3Candidates, targetContractFilter, "RISKY")
-        val saferEvaluatedTrack = evaluateProfileSelection(final3Candidates, targetContractFilter, "LESS_RISKY")
+        val lowestMacroCount = macroFrequencies.minOrNull() ?: 0
+        val rawStarvedDigits = (0..9).filter { macroFrequencies[it] == lowestMacroCount }
+
+        val final3Candidates = mutableListOf<Int>()
+
+        // CASE 1: FLOODING TRAP (4 OR 5 DIGITS ARE EQUALLY STARVED)
+        if (rawStarvedDigits.size > 3) {
+            val microHistory = currentHistory.takeLast(actualMicroSize)
+            val microFrequencies = IntArray(10)
+            microHistory.forEach { microFrequencies[it]++ }
+
+            val sortedByRecentDrought = rawStarvedDigits.sortedWith(
+                compareBy<Int> { microFrequencies[it] } // Coldest in last 10 ticks
+                .thenBy { it } // Fallback to maintain order
+            )
+            final3Candidates.addAll(sortedByRecentDrought.take(3))
+        }
+        // CASE 2: PERFECT STRUCTURE (Exactly 3 digits found)
+        else if (rawStarvedDigits.size == 3) {
+            final3Candidates.addAll(rawStarvedDigits)
+        }
+        // CASE 3: VACUUM TRAP (ONLY 2 DIGITS ARE STARVED)
+        else if (rawStarvedDigits.size == 2) {
+            final3Candidates.addAll(rawStarvedDigits)
+            val primaryAnchor1 = final3Candidates[0]
+
+            val spatialQuadrantPool = when {
+                primaryAnchor1 <= 3 -> listOf(0, 1, 2, 3)
+                primaryAnchor1 >= 6 -> listOf(6, 7, 8, 9)
+                else -> listOf(4, 5)
+            }
+
+            val paddingCandidate = spatialQuadrantPool
+                .filter { it !in final3Candidates }
+                .minByOrNull { macroFrequencies[it] }
+                ?: (0..9).filter { it !in final3Candidates }.minByOrNull { macroFrequencies[it] } ?: 0
+            final3Candidates.add(paddingCandidate)
+        }
+        // CASE 4: EXTREME LIQUIDITY CORRIDOR (Only 1 digit starved)
+        else {
+            final3Candidates.addAll(rawStarvedDigits)
+            val sequentialColdest = (0..9)
+                .filter { it !in final3Candidates }
+                .sortedBy { macroFrequencies[it] }
+                .take(2)
+            final3Candidates.addAll(sequentialColdest)
+        }
+
+        val parsedCandidates = final3Candidates.take(3)
+
+        // 5. Parallel Track Execution Compiler Engine using mathematically locked out-of-span strategy compiler
+        val riskyEvaluatedTrack = compileDefinitiveContract(parsedCandidates, extractedDigit, macroFrequencies, oddPercentage, evenPercentage)
+        val saferEvaluatedTrack = compileDefinitiveContract(parsedCandidates, extractedDigit, macroFrequencies, oddPercentage, evenPercentage)
 
         return UnifiedTickState(
             lastExtractedDigit = extractedDigit,
             stabilityScore = calculatedStability,
             globalRegime = globalRegime,
-            activeCandidates = final3Candidates,
+            activeCandidates = parsedCandidates,
             riskyProfile = riskyEvaluatedTrack,
             saferProfile = saferEvaluatedTrack
         )
     }
 
     /**
-     * Isolated functional routine to process contract filters and reject bad outcomes
+     * Translates the normalized 3-digit cluster into a mathematically sound trade.
+     * Enforces raw limit gates, stability bounds, and defensive cushioning via
+     * the weight-aware QuantitativeContractCompiler out-of-span strategy engine.
      */
-    private fun evaluateProfileSelection(candidates: List<Int>, filter: String, profile: String): ProfileExecutionTrack {
-        val maxDigit = candidates.maxOrNull() ?: 0
-        val minDigit = candidates.minOrNull() ?: 0
-        val span = maxDigit - minDigit
+    private fun compileDefinitiveContract(
+        normalizedCandidates: List<Int>,
+        extractedDigit: Int,
+        macroFrequencies: IntArray,
+        oddPercentage: Float,
+        evenPercentage: Float
+    ): ProfileExecutionTrack {
+        if (normalizedCandidates.size < 3) {
+            return ProfileExecutionTrack("NONE", "N/A", "0%", "INCOMPLETE", false)
+        }
 
-        if (filter == "UNDER") {
-            return if (profile == "RISKY") {
-                // Sniper Target: Maximize edge by selecting the extreme low boundary
-                val targetBarrier = minDigit + 1
+        val compiler = QuantitativeContractCompiler()
+        val strategyResult = compiler.compileContractStrategy(
+            currentDigit = extractedDigit,
+            frequencies = macroFrequencies,
+            oddPercentage = oddPercentage,
+            evenPercentage = evenPercentage,
+            completeCandidates = normalizedCandidates
+        )
 
-                // Outlier Filter: Guard against leaks going at or above the boundary
-                val containsViolator = candidates.any { it >= targetBarrier }
-                if (containsViolator || span > 4) {
-                    ProfileExecutionTrack("UNDER", "N/A", "0%", "Sniper Rejected (Outlier/Span)", false)
-                } else {
-                    val estPayout = when (targetBarrier) {
-                        1 -> "~970%"
-                        2 -> "~400%"
-                        3 -> "~233%"
-                        4 -> "~150%"
-                        5 -> "~100%"
-                        6 -> "~66%"
-                        7 -> "~42%"
-                        8 -> "~25%"
-                        9 -> "~11%"
-                        else -> "~100%"
-                    }
-                    ProfileExecutionTrack("UNDER", targetBarrier.toString(), estPayout, "SUCCESS", true)
-                }
-            } else {
-                // Safety Net Track: Add a 2-digit cushion buffer past the highest
-                val targetBarrier = (maxDigit + 2).coerceAtMost(9)
-                val estPayout = when (targetBarrier) {
-                    1 -> "~970%"
-                    2 -> "~400%"
-                    3 -> "~233%"
-                    4 -> "~150%"
-                    5 -> "~100%"
-                    6 -> "~66%"
-                    7 -> "~42%"
-                    8 -> "~25%"
-                    9 -> "~11%"
-                    else -> "~100%"
-                }
-                ProfileExecutionTrack("UNDER", targetBarrier.toString(), estPayout, "SUCCESS", true)
-            }
-        } else {
-            // HANDLE THE "OVER" CONTRACT EVALUATION RUN
-            return if (profile == "RISKY") {
-                val targetBarrier = maxDigit - 1
-                val containsViolator = candidates.any { it <= targetBarrier }
-                if (containsViolator || span > 4) {
-                    ProfileExecutionTrack("OVER", "N/A", "0%", "Sniper Rejected (Outlier/Span)", false)
-                } else {
-                    val estPayout = when (targetBarrier) {
-                        0 -> "~11%"
-                        1 -> "~25%"
-                        2 -> "~42%"
-                        3 -> "~66%"
-                        4 -> "~100%"
-                        5 -> "~150%"
-                        6 -> "~233%"
-                        7 -> "~400%"
-                        8 -> "~900%"
-                        else -> "~100%"
-                    }
-                    ProfileExecutionTrack("OVER", targetBarrier.toString(), estPayout, "SUCCESS", true)
-                }
-            } else {
-                val targetBarrier = (minDigit - 2).coerceAtLeast(0)
-                val estPayout = when (targetBarrier) {
-                    0 -> "~11%"
-                    1 -> "~25%"
-                    2 -> "~42%"
-                    3 -> "~66%"
-                    4 -> "~100%"
-                    5 -> "~150%"
-                    6 -> "~233%"
-                    7 -> "~400%"
-                    8 -> "~900%"
-                    else -> "~100%"
-                }
-                ProfileExecutionTrack("OVER", targetBarrier.toString(), estPayout, "SUCCESS", true)
-            }
+        // Convert StratResult contract type
+        val mappedContractType = when (strategyResult.chosenContractType) {
+            "DIGITUNDER" -> "UNDER"
+            "DIGITOVER" -> "OVER"
+            "DIGITEVEN" -> "EVEN"
+            "DIGITODD" -> "ODD"
+            "DIGITDIFF" -> "DIFFERS"
+            else -> "NONE"
+        }
+
+        val barrierParam = strategyResult.chosenBarrierParameter
+
+        val payoutVal = when (mappedContractType) {
+            "UNDER" -> getUnderPayoutFor(barrierParam.toIntOrNull() ?: -1)
+            "OVER" -> getOverPayoutFor(barrierParam.toIntOrNull() ?: -1)
+            "DIFFERS" -> "~11%"
+            "EVEN", "ODD" -> "~100%"
+            else -> "0%"
+        }
+
+        return ProfileExecutionTrack(
+            contractType = mappedContractType,
+            barrierParameter = barrierParam,
+            brokerPayoutPct = payoutVal,
+            validationMessage = strategyResult.structuralDiagnosticLog,
+            isSafeToExecute = strategyResult.isFilterSequencePassed
+        )
+    }
+
+    private fun getUnderPayoutFor(barrier: Int): String {
+        return when (barrier) {
+            1 -> "~970%"
+            2 -> "~400%"
+            3 -> "~233%"
+            4 -> "~150%"
+            5 -> "~100%"
+            6 -> "~66%"
+            7 -> "~42%"
+            8 -> "~25%"
+            9 -> "~11%"
+            else -> "~100%"
+        }
+    }
+
+    private fun getOverPayoutFor(barrier: Int): String {
+        return when (barrier) {
+            0 -> "~11%"
+            1 -> "~25%"
+            2 -> "~42%"
+            3 -> "~66%"
+            4 -> "~100%"
+            5 -> "~150%"
+            6 -> "~233%"
+            7 -> "~400%"
+            8 -> "~900%"
+            else -> "~100%"
         }
     }
 }

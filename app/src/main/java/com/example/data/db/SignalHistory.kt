@@ -24,7 +24,8 @@ data class SignalHistory(
     var isWin: Boolean? = null, // null = PENDING, true = WIN, false = LOSS
     var exitDigit: Int? = null, // null if pending
     var ticksObserved: Int = 0,
-    var targetTicks: Int = 2 // 2 ticks contract duration
+    var targetTicks: Int = 2, // 2 ticks contract duration
+    var observedTicks: String = "" // comma-separated digits of tick path sequence
 )
 
 @Dao

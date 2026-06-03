@@ -12,6 +12,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
@@ -49,7 +51,9 @@ fun PredictionsScreen(
     val backtestWins by viewModel.backtestWinsCount.collectAsState()
     val backtestTxList by viewModel.backtestTransactions.collectAsState()
     val userSettings by viewModel.userSettings.collectAsState()
+    val signalHistory by viewModel.signalHistory.collectAsState()
     var showContractPopup by remember { mutableStateOf(false) }
+    var selectedTrendDetail by remember { mutableStateOf<TrendingSignalData?>(null) }
 
     val backgroundBrush = Brush.verticalGradient(
         colors = listOf(Color(0xFF0F0F13), Color(0xFF050507))
@@ -790,66 +794,75 @@ fun PredictionsScreen(
                                     modifier = Modifier.padding(bottom = 12.dp)
                                 )
 
-                                val signalHistory by viewModel.signalHistory.collectAsState()
-                                val seedTrends = remember {
-                                    listOf(
-                                        TrendingSignalData("Volatility 100 (s) [UNDER 7]", "UNDER", 7, 142, 88.0f, "HOT 🔥"),
-                                        TrendingSignalData("Volatility 10 (s) [OVER 1]", "OVER", 1, 98, 85.4f, "DOMINANT 🚀"),
-                                        TrendingSignalData("Volatility 50 (s) [DIFFERS 9]", "DIFFERS", 9, 185, 91.0f, "STABLE 💎"),
-                                        TrendingSignalData("Volatility 25 (s) [UNDER 8]", "UNDER", 8, 120, 89.2f, "SCALPING ⚡"),
-                                        TrendingSignalData("Volatility 75 (s) [DIFFERS 0]", "DIFFERS", 0, 76, 90.0f, "SECURE 🛡️")
-                                    )
-                                }
+                                // Local state is now collected at the top of PredictionsScreen
 
                                 val trendingList = remember(signalHistory) {
-                                    seedTrends.map { seed ->
-                                        val matchingInDb = signalHistory.filter { 
-                                            it.contractType == seed.contractType && 
-                                            it.barrierValue == seed.barrierValue
-                                        }
-                                        if (matchingInDb.isNotEmpty()) {
-                                            val dbWins = matchingInDb.count { it.isWin == true }
-                                            val dbTotal = matchingInDb.size
+                                    if (signalHistory.isEmpty()) {
+                                        listOf(
+                                            TrendingSignalData("Volatility 100 (1S) [UNDER 7]", "UNDER", 7, 142, 88.0f, "HOT 🔥", 142, 88.0f, symbolCode = "1HZ100V"),
+                                            TrendingSignalData("Volatility 10 (1S) [OVER 1]", "OVER", 1, 98, 85.4f, "DOMINANT 🚀", 98, 85.4f, symbolCode = "1HZ10V"),
+                                            TrendingSignalData("Volatility 50 (1S) [DIFFERS 9]", "DIFFERS", 9, 185, 91.0f, "STABLE 💎", 185, 91.0f, symbolCode = "1HZ50V"),
+                                            TrendingSignalData("Volatility 25 (1S) [UNDER 8]", "UNDER", 8, 120, 89.2f, "SCALPING ⚡", 120, 89.2f, symbolCode = "1HZ25V"),
+                                            TrendingSignalData("Volatility 75 [DIFFERS 0]", "DIFFERS", 0, 76, 90.0f, "SECURE 🛡️", 76, 90.0f, symbolCode = "R_75")
+                                        )
+                                    } else {
+                                        val groups = signalHistory.groupBy { Triple(it.symbolCode, it.contractType, it.barrierValue) }
+                                        groups.map { (key, list) ->
+                                            val (symbolCode, contractType, barrierValue) = key
+                                            val displayName = list.firstOrNull()?.displayName ?: symbolCode
+                                            val wins = list.count { it.isWin == true }
+                                            val resolvedCount = list.count { it.isWin != null }
+                                            val winRate = if (resolvedCount > 0) (wins.toFloat() / resolvedCount) * 100f else 0f
                                             
-                                            val newTotal = seed.baseCount + dbTotal
-                                            val totalWinsCalculated = (seed.baseCount * (seed.baseWinRate / 100f)) + dbWins
-                                            val blendedWinRate = (totalWinsCalculated / newTotal) * 100f
-                                            seed.copy(
-                                                currentCount = newTotal,
-                                                currentWinRate = blendedWinRate
+                                            val badge = when {
+                                                winRate >= 90f -> "SECURE 🛡️"
+                                                winRate >= 80f -> "STABLE 💎"
+                                                winRate >= 70f -> "DOMINANT 🚀"
+                                                else -> "HOT 🔥"
+                                            }
+                                            TrendingSignalData(
+                                                title = "$displayName [$contractType $barrierValue]",
+                                                contractType = contractType,
+                                                barrierValue = barrierValue,
+                                                baseCount = list.size,
+                                                baseWinRate = winRate,
+                                                badge = badge,
+                                                currentCount = list.size,
+                                                currentWinRate = winRate,
+                                                symbolCode = symbolCode
                                             )
-                                        } else {
-                                            seed.copy(
-                                                currentCount = seed.baseCount,
-                                                currentWinRate = seed.baseWinRate
-                                            )
-                                        }
-                                    }.sortedByDescending { it.currentWinRate }
+                                        }.sortedByDescending { it.currentWinRate }
+                                    }
                                 }
 
                                 trendingList.forEachIndexed { i, trend ->
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(vertical = 10.dp),
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { selectedTrendDetail = trend }
+                                            .padding(vertical = 10.dp, horizontal = 8.dp),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Column(modifier = Modifier.weight(1.3f)) {
-                                            Text(
-                                                text = trend.title,
-                                                color = Color.White,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                fontFamily = FontFamily.Monospace
-                                            )
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color(0xFF3B82F6)))
+                                                Text(
+                                                    text = trend.title,
+                                                    color = Color.White,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
                                             Spacer(modifier = Modifier.height(4.dp))
                                             Surface(
                                                 shape = RoundedCornerShape(4.dp),
                                                 color = Color.White.copy(alpha = 0.05f)
                                             ) {
                                                 Text(
-                                                    text = trend.badge,
+                                                    text = "${trend.badge} (TAP TO VIEW)",
                                                     color = Color.LightGray,
                                                     fontSize = 8.sp,
                                                     fontWeight = FontWeight.Bold,
@@ -864,13 +877,13 @@ fun PredictionsScreen(
                                             horizontalAlignment = Alignment.CenterHorizontally
                                         ) {
                                             Text(
-                                                text = "${trend.currentCount} HITS",
+                                                text = "${trend.currentCount} SAMPLES",
                                                 color = Color.White.copy(alpha = 0.6f),
                                                 fontSize = 10.sp,
                                                 fontFamily = FontFamily.Monospace
                                             )
                                             Text(
-                                                text = "FREQUENCY",
+                                                text = "RECORDS FOUND",
                                                 color = Color.Gray,
                                                 fontSize = 8.sp,
                                                 fontFamily = FontFamily.Monospace
@@ -883,7 +896,7 @@ fun PredictionsScreen(
                                         ) {
                                             Text(
                                                 text = String.format(Locale.US, "%.1f%% Win", trend.currentWinRate),
-                                                color = Color(0xFF10B981),
+                                                color = if (trend.currentWinRate >= 80f) Color(0xFF10B981) else Color(0xFFFBBF24),
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.Black,
                                                 fontFamily = FontFamily.Monospace
@@ -896,7 +909,7 @@ fun PredictionsScreen(
                                                         .fillMaxWidth()
                                                         .height(4.dp)
                                                         .clip(CircleShape),
-                                                    color = Color(0xFF10B981),
+                                                    color = if (trend.currentWinRate >= 80f) Color(0xFF10B981) else Color(0xFFFBBF24),
                                                     trackColor = Color.White.copy(alpha = 0.05f)
                                                 )
                                             }
@@ -909,6 +922,173 @@ fun PredictionsScreen(
                                 }
                             }
                         }
+                    }
+
+                    // --- INDIVIDUAL TREND DETAILS INFOPANEL (MATCHING ENTRIES) ---
+                    selectedTrendDetail?.let { trend ->
+                        val matchingItems = signalHistory.filter {
+                            it.symbolCode == trend.symbolCode &&
+                            it.contractType == trend.contractType &&
+                            it.barrierValue == trend.barrierValue
+                        }.sortedByDescending { it.timestamp }
+
+                        AlertDialog(
+                            onDismissRequest = { selectedTrendDetail = null },
+                            title = {
+                                Column {
+                                    Text(
+                                        text = trend.title.uppercase(),
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Black,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                    Text(
+                                        text = "DETAILED SIGNAL BACK-LOG ENTRIES",
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            },
+                            text = {
+                                Box(modifier = Modifier.heightIn(max = 380.dp)) {
+                                    if (matchingItems.isEmpty()) {
+                                        Text(
+                                            text = "Simulation active. Awaiting fresh database records matching this symbol criteria...",
+                                            color = Color.LightGray,
+                                            fontSize = 11.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            textAlign = TextAlign.Center,
+                                            modifier = Modifier.padding(vertical = 24.dp)
+                                        )
+                                    } else {
+                                        LazyColumn(
+                                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            items(matchingItems) { item ->
+                                                val dateFormat = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+                                                val timeStr = dateFormat.format(java.util.Date(item.timestamp))
+                                                val isWinTag = item.isWin
+                                                
+                                                Column(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(Color.White.copy(alpha = 0.03f))
+                                                        .border(
+                                                            width = 1.dp,
+                                                            color = when (isWinTag) {
+                                                                true -> Color(0xFF10B981).copy(alpha = 0.2f)
+                                                                false -> Color(0xFFEF4444).copy(alpha = 0.2f)
+                                                                else -> Color.White.copy(alpha = 0.05f)
+                                                            },
+                                                            shape = RoundedCornerShape(8.dp)
+                                                        )
+                                                        .padding(8.dp)
+                                                ) {
+                                                    Row(
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Text(
+                                                            text = "Entry ID: ${item.signalId}",
+                                                            color = Color.White.copy(alpha = 0.7f),
+                                                            fontSize = 9.sp,
+                                                            fontFamily = FontFamily.Monospace,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                        Text(
+                                                            text = timeStr,
+                                                            color = Color.Gray,
+                                                            fontSize = 9.sp,
+                                                            fontFamily = FontFamily.Monospace
+                                                        )
+                                                    }
+                                                    
+                                                    Spacer(modifier = Modifier.height(4.dp))
+                                                    Text(
+                                                        text = "Contract Type: ${item.contractType} ${item.barrierValue}  |  Risk: ${item.riskProfile}",
+                                                        color = Color.LightGray,
+                                                        fontSize = 9.sp,
+                                                        fontFamily = FontFamily.Monospace
+                                                    )
+                                                    
+                                                    Spacer(modifier = Modifier.height(4.dp))
+                                                    Row(
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Text(
+                                                            text = "Candidates: { ${item.winDigits} }",
+                                                            color = Color.Gray,
+                                                            fontSize = 9.sp,
+                                                            fontFamily = FontFamily.Monospace
+                                                        )
+                                                        
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .clip(RoundedCornerShape(4.dp))
+                                                                .background(
+                                                                    when (isWinTag) {
+                                                                        true -> Color(0xFF10B981).copy(alpha = 0.15f)
+                                                                        false -> Color(0xFFEF4444).copy(alpha = 0.15f)
+                                                                        else -> Color(0xFFFBBF24).copy(alpha = 0.15f)
+                                                                    }
+                                                                )
+                                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                        ) {
+                                                            Text(
+                                                                text = when (isWinTag) {
+                                                                    true -> "WIN"
+                                                                    false -> "LOSS"
+                                                                    else -> "PENDING"
+                                                                },
+                                                                color = when (isWinTag) {
+                                                                    true -> Color(0xFF34D399)
+                                                                    false -> Color(0xFFFCA5A5)
+                                                                    else -> Color(0xFFFBBF24)
+                                                                },
+                                                                fontSize = 8.sp,
+                                                                fontWeight = FontWeight.Black,
+                                                                fontFamily = FontFamily.Monospace
+                                                            )
+                                                        }
+                                                    }
+                                                    
+                                                    if (item.observedTicks.isNotEmpty()) {
+                                                        Spacer(modifier = Modifier.height(4.dp))
+                                                        Text(
+                                                            text = "Tick Path: [ ${item.observedTicks.map { "$it" }.joinToString(", ")} ]",
+                                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                                                            fontSize = 8.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontFamily = FontFamily.Monospace
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            confirmButton = {
+                                TextButton(onClick = { selectedTrendDetail = null }) {
+                                    Text(
+                                        text = "DISMISS",
+                                        color = Color(0xFFEF4444),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            },
+                            containerColor = Color(0xFF0F0F16)
+                        )
                     }
 
                     // --- AUTOMATED NOTIFIER TARGET SELECTION DIALOG ---
@@ -1341,5 +1521,6 @@ data class TrendingSignalData(
     val baseWinRate: Float,
     val badge: String,
     val currentCount: Int = 0,
-    val currentWinRate: Float = 0f
+    val currentWinRate: Float = 0f,
+    val symbolCode: String = ""
 )

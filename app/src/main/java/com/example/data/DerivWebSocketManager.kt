@@ -60,6 +60,12 @@ class DerivWebSocketManager {
     private val _tickUpdateFlow = MutableStateFlow<Pair<String, Int>?>(null)
     val tickUpdateFlow: StateFlow<Pair<String, Int>?> = _tickUpdateFlow.asStateFlow()
 
+    private val _authorizedBalance = MutableStateFlow<Double?>(null)
+    val authorizedBalance: StateFlow<Double?> = _authorizedBalance.asStateFlow()
+
+    private val _authorizedTraderName = MutableStateFlow<String?>(null)
+    val authorizedTraderName: StateFlow<String?> = _authorizedTraderName.asStateFlow()
+
     private var pingSendTime = 0L
     private var pingRunnable: Runnable? = null
     
@@ -176,6 +182,25 @@ class DerivWebSocketManager {
             if (msgType == "ping") {
                 val rtt = System.currentTimeMillis() - pingSendTime
                 _pingState.value = rtt
+            } else if (msgType == "authorize") {
+                val authObj = json.optJSONObject("authorize")
+                if (authObj != null) {
+                    val balance = authObj.optDouble("balance")
+                    val fullname = authObj.optString("fullname", "Deriv Trader")
+                    if (!balance.isNaN()) {
+                        _authorizedBalance.value = balance
+                    }
+                    _authorizedTraderName.value = fullname
+                    _connectionState.value = "AUTHORIZED"
+                }
+            } else if (msgType == "buy") {
+                val buyObj = json.optJSONObject("buy")
+                if (buyObj != null) {
+                    val balanceAfter = buyObj.optDouble("balance_after")
+                    if (!balanceAfter.isNaN()) {
+                        _authorizedBalance.value = balanceAfter
+                    }
+                }
             } else if (msgType == "tick") {
                 val tickObj = json.optJSONObject("tick")
                 if (tickObj != null) {
@@ -192,6 +217,50 @@ class DerivWebSocketManager {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error parsing message: ${e.message}")
+        }
+    }
+
+    fun sendAuthorizeRequest(token: String) {
+        val ws = webSocket
+        if (ws != null) {
+            try {
+                val json = JSONObject().apply {
+                    put("authorize", token)
+                }
+                ws.send(json.toString())
+            } catch (e: Exception) {
+                Log.e(TAG, "Error sending authorize request: ${e.message}")
+            }
+        }
+    }
+
+    fun sendBuyRequest(symbol: String, contractType: String, barrier: String, stake: Double, durationTicks: Int = 2) {
+        val ws = webSocket
+        if (ws != null) {
+            try {
+                val json = JSONObject().apply {
+                    put("buy", 1)
+                    put("price", stake)
+                    val params = JSONObject().apply {
+                        put("amount", stake)
+                        put("basis", "stake")
+                        put("contract_type", contractType)
+                        put("currency", "USD")
+                        put("duration", durationTicks)
+                        put("duration_unit", "t")
+                        put("symbol", symbol)
+                        if (contractType == "OVER" || contractType == "UNDER") {
+                            put("barrier", if (contractType == "OVER") "+$barrier" else "-$barrier")
+                        } else if (contractType == "DIFFERS") {
+                            put("barrier", barrier)
+                        }
+                    }
+                    put("parameters", params)
+                }
+                ws.send(json.toString())
+            } catch (e: Exception) {
+                Log.e(TAG, "Error sending buy request: ${e.message}")
+            }
         }
     }
 
@@ -251,30 +320,35 @@ class DerivWebSocketManager {
             lastPrices[symbol] = Random.nextDouble(100.0, 5000.0)
         }
 
-        // Generate updates sequentially mimicking different transaction threads
-        val r = object : Runnable {
-            override fun run() {
-                val pair = VOLATILITY_SYMBOLS[Random.nextInt(VOLATILITY_SYMBOLS.size)]
-                val symbol = pair.first
-                
-                // Add tick
-                val currentPrice = lastPrices[symbol] ?: 100.0
-                val priceChange = Random.nextDouble(-5.0, 5.0)
-                val newPrice = (currentPrice + priceChange).coerceAtLeast(10.0)
-                lastPrices[symbol] = newPrice
-                
-                // Extract last digit
-                val digit = extractLastDigit(newPrice, 3)
-                appendDigitToHistory(symbol, digit)
-                
-                // Mock ping fluctuation
-                _pingState.value = Random.nextLong(45, 95)
-                
-                mainHandler.postDelayed(this, Random.nextLong(300, 1000))
+        // Generate updates sequentially mimicking different transaction threads at their exact real frequencies
+        for ((symbol, displayName) in VOLATILITY_SYMBOLS) {
+            val isOneSecond = displayName.contains("(1S)", ignoreCase = true)
+            val intervalMs = if (isOneSecond) 1000L else 2000L
+            
+            val r = object : Runnable {
+                override fun run() {
+                    if (!isSimulating) return
+                    
+                    // Add tick
+                    val currentPrice = lastPrices[symbol] ?: 100.0
+                    val volatilityScale = if (symbol.contains("100")) 12.0 else 4.0
+                    val priceChange = Random.nextDouble(-volatilityScale, volatilityScale)
+                    val newPrice = (currentPrice + priceChange).coerceAtLeast(10.0)
+                    lastPrices[symbol] = newPrice
+                    
+                    // Extract last digit
+                    val digit = extractLastDigit(newPrice, 3)
+                    appendDigitToHistory(symbol, digit)
+                    
+                    // Mock ping fluctuation
+                    _pingState.value = Random.nextLong(15, 65)
+                    
+                    mainHandler.postDelayed(this, intervalMs)
+                }
             }
+            simulationTimers.add(r)
+            mainHandler.post(r)
         }
-        simulationTimers.add(r)
-        mainHandler.post(r)
     }
 
     private fun stopSimulation() {

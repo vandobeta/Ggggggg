@@ -1,41 +1,43 @@
-# Milestone & Progress Tracker - Digit Analysis Assistant
+# Project Plan & Milestone Tracker
 
-This document serves as the dynamic milestone tracking system for the Digit Analysis app.
+This project is a high-frequency algorithmic derivatives indicator and automated co-pilot executor for trading parity digit contracts (UNDER, OVER, DIFFERS, EVEN, ODD) using WebSocket parity streams.
 
-## Active Project Overview
-The application is a high-performance Jetpack Compose client that reads live digit feeds over WebSockets to calculate regression predictions for binary contracts (Overs/Unders/Differs). Key enhancements focus on giving the operator ultimate control over personalized contract filtration, quadrant-specific digit triggers, customized alert styles, and comprehensive high-fidelity trend analysis.
+## Done / Completed Milestones
 
----
+### 1. Unified Global Header & Account Type Switching
+*   **Demo & Real Account Segregation**: Integrated independent demo vs real wallet balances and persisted preferences inside local SQLite Room configuration database.
+*   **Header Interface**: Integrated a cohesive, modern Material 3 global navigation bar header inside `MainActivity.kt` with instant toggle capability to transition seamlessly between test and live sandboxes.
+*   **Error Banner**: Embedded a high-visibility, dismissible error and websocket connection status alert banner directly coupled to ViewModel states.
 
-## 📈 Milestones Status
+### 2. Room Trade History Persistence Log Engine
+*   **Trade Database Entities**: Designed `TradeHistory` Room scheme in `TradeHistory.kt` with complete transaction metadata including timestamps, stakes, barrier thresholds, contract specifications, entry digits, exit digits, status (WIN, LOSS, PENDING), and net performance payout margins.
+*   **Observer Pipelines**: Bound StateFlow collectors in `DigitAnalysisViewModel` to retrieve transactional ledger streams in real-time, handling instant clearing/purging operations cleanly.
 
-### ✅ Milestone 1: Custom Signal Templates & Trigger Logic
-* **Objective:** Enable advanced configurations where users select customized contracts and trigger logic instead of generic presets.
-* **Accomplishments:**
-  * Added `customContract` (ALL or selectable contract formulas e.g., OVER 3, UNDER 5, MATCHES 4, DIFFERS 9) to `AppSettings`.
-  * Added specific quadrant triggers (`triggerLowerOdds`, `triggerLowerEvens`, `triggerHigherOdds`, `triggerHigherEvens`) reflecting the odds/evens split under and over 5.
-  * Added customizable alert actions: Vibrations only, Notifications only, or both.
-  * Overhauled `generateFreshSignal` algorithm in `DigitAnalysisViewModel` to strictly adhere to custom triggers and options.
-  * Bound settings switches and alert selectors in `SettingsScreen.kt` to update database state dynamically.
-  * Suppressed standard scanning notifications when custom filtration takes precedence (addressing the instruction: *"the app does not show any other notification apart from selected custom user settings"*).
+### 3. Interactive RADAR Manual Trade Execution Deck
+*   **Manual Executor Module**: Designed a dedicated manual action area inside `SignalsScreen.kt` featuring real-time input fields bound to custom preset stakes (`$1.00`, `$5.00`, `$10.00`, `$25.00`, `$50.00`).
+*   **Dynamic Triggers**: Linked manual submission buttons dynamically to execute contracts using raw Deriv token REST pathways or local simulator fallback pipelines instantly.
 
-### ✅ Milestone 2: Real-time Winrate Tracking
-* **Objective:** Show signal winrates in real-time in the Signal History view.
-* **Accomplishments:**
-  * Designed and built a high-tech **Live Accuracy Indicator Dashboard** in `SignalsScreen.kt`.
-  * Queries and filters `signalHistory` list live to count only resolved wins vs. losses.
-  * Displays dynamic accuracy percentages, a visual progress bar, active diagnostic flags, and precise win-loss statistics.
+### 4. Transaction History Dashboard Tab
+*   **Sub-Tab Selector**: Expanded the tab structures inside `SignalsScreen.kt` from 2 options to 3: **RADAR DECK** (Live analysis), **TRADES** (Live performance logs), and **SIGNALS** (Historical recommendation stats).
+*   **Net Performance Aggregations**: Calculated and displayed actual session win percentage metrics, cumulative Profit/Loss markers, and active transaction listings with colored card highlights.
 
-### ✅ Milestone 3: Live-updating Trending Signals
-* **Objective:** Add a dynamic "Trending Signals" section to the Predictions console.
-* **Accomplishments:**
-  * Developed a premium **Highest Frequency Trending Signals Corridor** inside `PredictionsScreen.kt`.
-  * Incorporated a blend of high-confidence offline baseline seed templates and real-time database-tracked historical win rates.
-  * Automatically recalculates the actual win rates and frequencies as signals are generated and written into the historical log.
-  * Designed with Material Design 3 progress bars and status badges (e.g., `"HOT 🔥"`, `"DOMINANT 🚀"`, `"STABLE 💎"`).
+### 5. Algorithmic Debug Separations
+*   **Developer Consolidation**: Moved diagnostic facilities and demo alarm simulations inside `SettingsScreen.kt` behind a secure, collapsible developer drawer, preserving clean aesthetics for retail configurations.
 
----
+### 6. Mathematically Locked Out-Of-Span Weight Engine
+*   **QuantitativeContractCompiler**: Introduced mathematically locked, weight-aware out-of-span routing.
+*   **Weight & Position Optimization**: Candidate matrix prioritized with `[Primary Anchor (Index 0), Noise Guard 1, Noise Guard 2]`. Configured Index 0 carry supreme predictable gravity when Even/Odd ratios stretch.
+*   **Stability Gates (S101)**:
+    *   *Dead Zone* (<40%): Terminate/suspend all outputs.
+    *   *Active Zone* (40%-85%): Authorize Over/Under and Even/Odd modes.
+    *   *Sniper Zone* (>85%): Unlocks high-conviction Differs signals.
+    *   *Parity Kill-Switch*: Active under Span 3-4 and Stability < 60% to safely abort pending parity orders.
+    *   *Absolute Blacklist*: Span 9 triggers a hard lockout.
 
-## 🔍 Next Steps & Verification
-1. **Operator Validation:** Keep tracking the success metrics on client-side runs.
-2. **Interactive Optimization:** Review specific barrier boundaries if the user wants to adjust payout percentages dynamically.
+### 7. Structured Setup Wizard & Security Disclaimers
+*   **4-Step Wizard**: Upgraded `FirstLaunchSetupScreen.kt` into a highly-directed 4-step wizard structure.
+*   **Deriv Secure Token Capture**: Designed a dedicated Token Integration step capturing keys with high-visibility, exclusive disclaimers highlighting local encrypted storage, self-custody details, minimum permission profiles (Read & Trade scopes), and volatility cautions.
+*   **Foolproof Startup Retention**: Reinforced onboarding state tracking with dual-layer storage (Room SQLite + SharedPreferences). Guarantees that completed setups permanently skip the setup screen on launch.
+
+## Future Plans & Milestones
+*   Real-time WebSocket connection listener optimizations and raw tick throughput enhancements.

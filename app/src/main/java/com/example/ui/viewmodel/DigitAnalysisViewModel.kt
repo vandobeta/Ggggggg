@@ -79,11 +79,53 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
     private val _activeSignal = MutableStateFlow<LiveTradeSignal?>(null)
     val activeSignal: StateFlow<LiveTradeSignal?> = _activeSignal.asStateFlow()
 
+    // --- AUTO TRADER ENGINE STATES ---
+    private val _autoSessionProfit = MutableStateFlow(0.0)
+    val autoSessionProfit: StateFlow<Double> = _autoSessionProfit.asStateFlow()
+
+    private val _maxSessionProfit = MutableStateFlow(0.0)
+    val maxSessionProfit: StateFlow<Double> = _maxSessionProfit.asStateFlow()
+
+    private val _targetProfitReached = MutableStateFlow(false)
+    val targetProfitReached: StateFlow<Boolean> = _targetProfitReached.asStateFlow()
+    
+    private val _stopLossHit = MutableStateFlow(false)
+    val stopLossHit: StateFlow<Boolean> = _stopLossHit.asStateFlow()
+
+    private val crossoverTicksRemaining = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private val _crossoverDetected = MutableStateFlow<Boolean>(false)
+    val crossoverDetected: StateFlow<Boolean> = _crossoverDetected.asStateFlow()
+
+    fun resetAutoTraderSession() {
+        _autoSessionProfit.value = 0.0
+        _maxSessionProfit.value = 0.0
+        _targetProfitReached.value = false
+        _stopLossHit.value = false
+    }
+
     private var signalsJob: Job? = null
 
     // --- PERSISTENT TRIGGERED SIGNALS HISTORY FLOW ---
     private val _signalHistory = MutableStateFlow<List<com.example.data.db.SignalHistory>>(emptyList())
     val signalHistory: StateFlow<List<com.example.data.db.SignalHistory>> = _signalHistory.asStateFlow()
+
+    // --- PERSISTENT TRADE HISTORY WORKFLOW FLOWS ---
+    private val _tradeHistory = MutableStateFlow<List<com.example.data.db.TradeHistory>>(emptyList())
+    val tradeHistory: StateFlow<List<com.example.data.db.TradeHistory>> = _tradeHistory.asStateFlow()
+
+    val activePendingTrades = java.util.Collections.synchronizedList(mutableListOf<com.example.data.db.TradeHistory>())
+    val tradeTicksRemaining = java.util.concurrent.ConcurrentHashMap<Long, Int>()
+
+    private val _navErrorMessage = MutableStateFlow<String?>(null)
+    val navErrorMessage: StateFlow<String?> = _navErrorMessage.asStateFlow()
+
+    fun dismissErrorMessage() {
+        _navErrorMessage.value = null
+    }
+
+    fun setSystemErrorMessage(msg: String) {
+        _navErrorMessage.value = msg
+    }
 
     private val pendingSignals = java.util.concurrent.CopyOnWriteArrayList<com.example.data.db.SignalHistory>()
     
@@ -131,6 +173,11 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
 
     val connectionState: StateFlow<String> = wsManager.connectionState
     val pingState: StateFlow<Long> = wsManager.pingState
+    val tickUpdateFlow: StateFlow<Pair<String, Int>?> = wsManager.tickUpdateFlow
+
+    fun getHistoryFor(symbol: String): List<Int> {
+        return wsManager.getHistoryFor(symbol)
+    }
 
     private var updateJob: Job? = null
     private var alarmJob: Job? = null
@@ -157,7 +204,20 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
         startObservationLoop()
         startPeriodicAlarmLoop()
         observePracticeBets()
+        observeTradeHistory()
         startSignalsLoop()
+
+        // Recover unresolved pending trades from database in the background
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val unresolved = db.tradeHistoryDao().getPendingResultTrades()
+                synchronized(activePendingTrades) {
+                    activePendingTrades.addAll(unresolved)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     private var lastObservedRiskProfile: String? = null
@@ -214,14 +274,16 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                     verifyAndStoreTickTimestamp(symbol, digit)
                     processBacktestOnNewTick(symbol, digit)
                     processLiveSignalsOnNewTick(symbol, digit)
+                    processTradeHistoryOnNewTick(symbol, digit)
 
                     // Real-time State Distribution: Pass calculated UnifiedTickState to single UI StateFlow container
                     val rawPrice = wsManager.getLastPriceFor(symbol)
                     val settings = _userSettings.value
                     val contractChoice = if (settings.customContract.startsWith("OVER")) "OVER" else "UNDER"
 
+                    val isOneSecond = symbol.startsWith("1HZ")
                     val processor = getProcessorFor(symbol)
-                    val unifiedState = processor.processIncomingMarketTick(rawPrice, contractChoice)
+                    val unifiedState = processor.processIncomingMarketTick(rawPrice, contractChoice, isOneSecond, cushionSpacing = settings.cushionSpacing)
 
                     if (symbol == _selectedSymbol.value) {
                         _unifiedTickState.value = unifiedState
@@ -408,7 +470,24 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
 
             // Parity Crossover Detection Rule (ODD vs EVEN transitions)
             val currentlyEven = macroEvenPct > 50f
+            val previousEven = previousEvenDominance[symbol]
+            val crossoverHappened = previousEven != null && previousEven != currentlyEven
             previousEvenDominance[symbol] = currentlyEven
+
+            if (crossoverHappened) {
+                crossoverTicksRemaining[symbol] = 8
+                if (symbol == currentSelected) {
+                    _crossoverDetected.value = true
+                    triggerDoubleVibration() // Entry vibration for crossover
+                }
+            } else {
+                val remaining = crossoverTicksRemaining[symbol] ?: 0
+                if (remaining > 0) {
+                    crossoverTicksRemaining[symbol] = remaining - 1
+                } else if (symbol == currentSelected) {
+                    _crossoverDetected.value = false
+                }
+            }
 
             // Micro velocity
             val microEvenCount = microLookback.count { it % 2 == 0 }
@@ -559,32 +638,35 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                 else -> "HIGHER ODD"
             }
 
-            // Using AppSettings.droughtThreshold dynamically
-            val droughtFactor = (droughtThreshold - countPct).coerceAtLeast(0f) * 6f
+            // High occurrence percentage (countPct) contributes POSITIVELY to confidence!
+            val occurrenceBonus = countPct * 3.5f
+
+            // Quadrant weight contributes POSITIVELY to confidence!
+            val quadrantWeight = when (digit) {
+                0, 2, 4 -> leWeight
+                1, 3 -> loWeight
+                6, 8 -> heWeight
+                else -> hoWeight
+            }
+            val quadBonus = quadrantWeight * 0.7f
 
             val isEven = (digit % 2 == 0)
             val parityImbalance = abs(macroEvenPct - 50f)
-            val parityBonus = if (isEven != evenIsDominating) {
-                (parityImbalance / 50f) * 22f
+            val parityBonus = if (isEven == evenIsDominating) {
+                (parityImbalance / 50f) * 15f
             } else {
                 -5f
             }
 
-            var blendInBonus = 0f
-            if (evenIsDominating && quadrant == "LOWER EVEN") {
-                blendInBonus = 12f
-            } else if (!evenIsDominating && quadrant == "LOWER ODD") {
-                blendInBonus = 12f
-            }
-
-            val microMovesOpposite = if (evenIsDominating) (microEvenVelocity < 50f) else (microEvenVelocity > 50f)
-            val momentumBonus = if (microMovesOpposite && (isEven != evenIsDominating)) {
-                15f
+            // Momentum bonus: matching micro velocity (micro trend)
+            val microEvenDominating = microEvenVelocity > 50f
+            val momentumBonus = if (isEven == microEvenDominating) {
+                10f
             } else {
                 0f
             }
 
-            val finalConfidence = (50f + droughtFactor + parityBonus + blendInBonus + momentumBonus).coerceIn(5f, 99f)
+            val finalConfidence = (35f + occurrenceBonus + quadBonus + parityBonus + momentumBonus).coerceIn(5f, 99f)
 
             list.add(
                 LivePredictionModel(
@@ -803,16 +885,86 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
         pendingSignals.forEach { signal ->
             if (signal.symbolCode == symbol) {
                 signal.ticksObserved++
+                signal.observedTicks = if (signal.observedTicks.isEmpty()) {
+                    incomingDigit.toString()
+                } else {
+                    "${signal.observedTicks},$incomingDigit"
+                }
+                
                 if (signal.ticksObserved >= signal.targetTicks) {
                     val barrierNum = signal.barrierValue
                     val won = when (signal.contractType) {
                         "UNDER" -> incomingDigit < barrierNum
                         "OVER" -> incomingDigit > barrierNum
                         "DIFFERS" -> incomingDigit != barrierNum
+                        "EVEN", "DIGITEVEN" -> incomingDigit % 2 == 0
+                        "ODD", "DIGITODD" -> incomingDigit % 2 != 0
                         else -> false
                     }
                     signal.isWin = won
                     signal.exitDigit = incomingDigit
+
+                    // Process Auto Trader Results
+                    val settings = _userSettings.value
+                    if (settings.autoTraderEnabled) {
+                        val actualStake = if (settings.autoTraderCompoundingStake) {
+                            (settings.derivWalletBalance * 0.01).coerceAtLeast(1.0)
+                        } else {
+                            settings.autoTraderStake
+                        }
+
+                        val cleanPayoutStr = signal.payoutPct.replace("~", "").replace("%", "")
+                        val payoutPercent = cleanPayoutStr.toDoubleOrNull() ?: 100.0
+                        val payoutMultiplier = payoutPercent / 100.0
+
+                        val tradeProfit = if (won) (actualStake * payoutMultiplier) else (-actualStake)
+                        val newSessionProfit = _autoSessionProfit.value + tradeProfit
+                        val newBalance = settings.derivWalletBalance + tradeProfit
+
+                        _autoSessionProfit.value = newSessionProfit
+                        _maxSessionProfit.value = maxOf(_maxSessionProfit.value, newSessionProfit)
+
+                        var isTPReached = false
+                        var isSLHit = false
+
+                        if (newSessionProfit >= settings.autoTraderTakeProfit) {
+                            isTPReached = true
+                            _targetProfitReached.value = true
+                        }
+
+                        if (settings.autoTraderTrailingStopLoss) {
+                            if (newSessionProfit < _maxSessionProfit.value - settings.autoTraderStopLoss) {
+                                isSLHit = true
+                                _stopLossHit.value = true
+                            }
+                        } else {
+                            if (newSessionProfit <= -settings.autoTraderStopLoss) {
+                                isSLHit = true
+                                _stopLossHit.value = true
+                            }
+                        }
+
+                        val shouldDisableAuto = isTPReached || isSLHit
+                        val updatedSettings = settings.copy(
+                            derivWalletBalance = newBalance,
+                            autoTraderEnabled = if (shouldDisableAuto) false else settings.autoTraderEnabled
+                        )
+
+                        viewModelScope.launch {
+                            try {
+                                repository.saveSettings(updatedSettings)
+                                _userSettings.value = updatedSettings
+                                if (won) {
+                                    triggerDoubleVibration()
+                                } else {
+                                    triggerConflictWarningVibration()
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    }
+
                     viewModelScope.launch(Dispatchers.IO) {
                         try {
                             db.signalHistoryDao().updateSignal(signal)
@@ -821,6 +973,14 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                         }
                     }
                     pendingSignals.remove(signal)
+                } else {
+                    viewModelScope.launch(Dispatchers.IO) {
+                        try {
+                            db.signalHistoryDao().updateSignal(signal)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
                 }
             }
         }
@@ -1127,7 +1287,8 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
             candidates = candidates,
             message = message,
             zone = if (zone == "LOWER") "CHILL ZONE" else if (zone == "HIGHER") "SKY HIGH" else "CHOP SHOP",
-            probabilityEst = probability
+            probabilityEst = probability,
+            crossoverActive = (crossoverTicksRemaining[symbolCode] ?: 0) > 0
         )
         _activeSignal.value = freshSignal
 
@@ -1158,6 +1319,57 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
             winDigits = candidates.joinToString(","),
             targetTicks = settings.virtualTradeCloseTicks
         )
+
+        // Deploy Auto Trader actual buy orders to live/demo Deriv system if enabled
+        if (settings.autoTraderEnabled) {
+            val computedStake = if (settings.autoTraderCompoundingStake) {
+                ((if (settings.isDemoAccount) settings.demoWalletBalance else settings.realWalletBalance) * 0.01).coerceAtLeast(1.0)
+            } else {
+                settings.autoTraderStake
+            }
+
+            val rawPrice = wsManager.getLastPriceFor(symbolCode) ?: 1.0
+            val priceStr = rawPrice.toString()
+            val entryDigitVal = priceStr.substring(priceStr.length - 1).toIntOrNull() ?: 0
+
+            val automatedPendingTrade = com.example.data.db.TradeHistory(
+                timestamp = System.currentTimeMillis(),
+                symbolCode = symbolCode,
+                displayName = displayName,
+                contractType = contractType,
+                barrierValue = barrier.toIntOrNull() ?: 5,
+                tradeType = "AUTOMATED",
+                accountType = if (settings.isDemoAccount) "DEMO" else "REAL",
+                stake = computedStake,
+                entryPrice = rawPrice,
+                entryDigit = entryDigitVal,
+                status = "PENDING"
+            )
+
+            viewModelScope.launch {
+                try {
+                    val dbId = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                        db.tradeHistoryDao().insertTrade(automatedPendingTrade)
+                    }
+                    synchronized(activePendingTrades) {
+                        activePendingTrades.add(automatedPendingTrade.copy(id = dbId))
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
+            if (settings.derivToken.isNotEmpty()) {
+                wsManager.sendBuyRequest(
+                    symbol = symbolCode,
+                    contractType = contractType,
+                    barrier = barrier,
+                    stake = computedStake,
+                    durationTicks = settings.virtualTradeCloseTicks
+                )
+            }
+        }
+
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val dbId = db.signalHistoryDao().insertSignal(freshDbSignal)
@@ -1187,6 +1399,222 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
+    private fun observeTradeHistory() {
+        viewModelScope.launch {
+            db.tradeHistoryDao().getAllTradesFlow().collect { trades ->
+                _tradeHistory.value = trades
+            }
+        }
+    }
+
+    fun clearTradeHistory() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                db.tradeHistoryDao().clearAllTrades()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun toggleAccountType() {
+        viewModelScope.launch {
+            try {
+                val currentSettings = _userSettings.value
+                val nextDemoMode = !currentSettings.isDemoAccount
+                val updatedSettings = currentSettings.copy(
+                    isDemoAccount = nextDemoMode,
+                    derivWalletBalance = if (nextDemoMode) currentSettings.demoWalletBalance else currentSettings.realWalletBalance
+                )
+                repository.saveSettings(updatedSettings)
+                _userSettings.value = updatedSettings
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun executeManualTrade(
+        symbolCode: String,
+        displayName: String,
+        contractType: String,
+        barrier: Int,
+        stake: Double
+    ) {
+        viewModelScope.launch {
+            try {
+                val settings = _userSettings.value
+                
+                // Balance protection check
+                val currentBalance = if (settings.isDemoAccount) settings.demoWalletBalance else settings.realWalletBalance
+                if (currentBalance < stake) {
+                    _navErrorMessage.value = "Insufficient funds! Balance: $${String.format("%.2f", currentBalance)} | Stake: $${String.format("%.2f", stake)}"
+                    triggerConflictWarningVibration()
+                    return@launch
+                }
+
+                val currentPrice = wsManager.getLastPriceFor(symbolCode)
+                val finalEntryPrice = if (currentPrice > 0.0) currentPrice else 1.0
+                val priceStr = finalEntryPrice.toString()
+                val entryDigitVal = priceStr.substring(priceStr.length - 1).toIntOrNull() ?: 0
+
+                val freshManualTrade = com.example.data.db.TradeHistory(
+                    timestamp = System.currentTimeMillis(),
+                    symbolCode = symbolCode,
+                    displayName = displayName,
+                    contractType = contractType,
+                    barrierValue = barrier,
+                    tradeType = "MANUAL",
+                    accountType = if (settings.isDemoAccount) "DEMO" else "REAL",
+                    stake = stake,
+                    entryPrice = finalEntryPrice,
+                    entryDigit = entryDigitVal,
+                    status = "PENDING"
+                )
+
+                val dbId = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    db.tradeHistoryDao().insertTrade(freshManualTrade)
+                }
+
+                synchronized(activePendingTrades) {
+                    activePendingTrades.add(freshManualTrade.copy(id = dbId))
+                }
+                
+                triggerDoubleVibration()
+            } catch (e: Exception) {
+                _navErrorMessage.value = "Manual trade execution failed: ${e.message}"
+                e.printStackTrace()
+            }
+        }
+    }
+
+    private fun getUnderPayoutFor(barrier: Int): String {
+        return when (barrier) {
+            1 -> "~970%"
+            2 -> "~400%"
+            3 -> "~233%"
+            4 -> "~150%"
+            5 -> "~100%"
+            6 -> "~66%"
+            7 -> "~42%"
+            8 -> "~25%"
+            9 -> "~11%"
+            else -> "~100%"
+        }
+    }
+
+    private fun getOverPayoutFor(barrier: Int): String {
+        return when (barrier) {
+            0 -> "~11%"
+            1 -> "~25%"
+            2 -> "~42%"
+            3 -> "~66%"
+            4 -> "~100%"
+            5 -> "~150%"
+            6 -> "~233%"
+            7 -> "~400%"
+            8 -> "~970%"
+            else -> "~100%"
+        }
+    }
+
+    fun processTradeHistoryOnNewTick(symbol: String, incomingDigit: Int) {
+        synchronized(activePendingTrades) {
+            val iterator = activePendingTrades.iterator()
+            while (iterator.hasNext()) {
+                val trade = iterator.next()
+                if (trade.symbolCode == symbol) {
+                    val ticksPassed = (tradeTicksRemaining[trade.id] ?: 0) + 1
+                    tradeTicksRemaining[trade.id] = ticksPassed
+                    
+                    val settings = _userSettings.value
+                    val targetTicks = settings.virtualTradeCloseTicks.coerceAtLeast(1)
+                    if (ticksPassed >= targetTicks) {
+                        // Gather clean exit prices and exit digits
+                        val rawPrice = wsManager.getLastPriceFor(symbol)
+                        val finalExitPrice = if (rawPrice > 0.0) rawPrice else (trade.entryPrice + 0.1)
+                        val cleanPriceStr = finalExitPrice.toString()
+                        val exitDigitVal = cleanPriceStr.substring(cleanPriceStr.length - 1).toIntOrNull() ?: incomingDigit
+                        
+                        // Compute outcome won state
+                        val won = when (trade.contractType) {
+                            "UNDER" -> exitDigitVal < trade.barrierValue
+                            "OVER" -> exitDigitVal > trade.barrierValue
+                            "DIFFERS" -> exitDigitVal != trade.barrierValue
+                            "EVEN", "DIGITEVEN" -> exitDigitVal % 2 == 0
+                            "ODD", "DIGITODD" -> exitDigitVal % 2 != 0
+                            "MATCHES" -> exitDigitVal == trade.barrierValue
+                            else -> false
+                        }
+                        
+                        // Calculate payout pct & profitLoss
+                        val payoutPctStr = if (trade.contractType == "UNDER") {
+                            getUnderPayoutFor(trade.barrierValue)
+                        } else if (trade.contractType == "OVER") {
+                            getOverPayoutFor(trade.barrierValue)
+                        } else if (trade.contractType == "DIFFERS") {
+                            "~11.0%"
+                        } else {
+                            "~100.0%"
+                        }
+                        
+                        val cleanPayoutNum = payoutPctStr.replace("~", "").replace("%", "").toDoubleOrNull() ?: 100.0
+                        val payoutMultiplier = cleanPayoutNum / 100.0
+                        val profitLossVal = if (won) (trade.stake * payoutMultiplier) else (-trade.stake)
+                        
+                        val resolvedTrade = trade.copy(
+                            exitPrice = finalExitPrice,
+                            exitDigit = exitDigitVal,
+                            profitLoss = profitLossVal,
+                            status = if (won) "WIN" else "LOSS"
+                        )
+                        
+                        // Persist resolved trade
+                        viewModelScope.launch(Dispatchers.IO) {
+                            try {
+                                db.tradeHistoryDao().updateTrade(resolvedTrade)
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                        
+                        // Synchronize settings balances based on demo or real mode!
+                        val updatedSettings = if (resolvedTrade.accountType == "DEMO") {
+                            val newDemoBal = settings.demoWalletBalance + profitLossVal
+                            settings.copy(
+                                demoWalletBalance = newDemoBal,
+                                derivWalletBalance = if (settings.isDemoAccount) newDemoBal else settings.derivWalletBalance
+                            )
+                        } else {
+                            val newRealBal = settings.realWalletBalance + profitLossVal
+                            settings.copy(
+                                realWalletBalance = newRealBal,
+                                derivWalletBalance = if (!settings.isDemoAccount) newRealBal else settings.derivWalletBalance
+                            )
+                        }
+                        
+                        viewModelScope.launch {
+                            try {
+                                repository.saveSettings(updatedSettings)
+                                _userSettings.value = updatedSettings
+                                if (won) {
+                                    triggerDoubleVibration()
+                                } else {
+                                    triggerConflictWarningVibration()
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                        
+                        iterator.remove()
+                        tradeTicksRemaining.remove(trade.id)
+                    }
+                }
+            }
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         updateJob?.cancel()
@@ -1208,7 +1636,8 @@ data class LiveTradeSignal(
     val candidates: List<Int>,
     val message: String,
     val zone: String,
-    val probabilityEst: Float
+    val probabilityEst: Float,
+    val crossoverActive: Boolean = false
 )
 
 data class BacktestTx(
