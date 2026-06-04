@@ -1281,112 +1281,128 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
             }
             message = "Matched Custom Trigger: $matchedTriggerName. Executing customized contract model."
         } else {
-            // Standard original zone-based options (OVER, UNDER, DIFFERS)
-            val randomChoice = kotlin.random.Random.nextFloat() // To distribute OVER, UNDER, and DIFFERS
+            // Standard system qualification rules (Low, Mid, High Divisions)
+            val anchor = candidates.getOrNull(0) ?: 0
+            val maxDigit = candidates.maxOrNull() ?: 0
+            val minDigit = candidates.minOrNull() ?: 0
+            val span = maxDigit - minDigit
 
-            when (zone) {
-                "LOWER" -> {
-                    if (profile == "RISKY") {
-                        if (randomChoice < 0.7f) {
-                            contractType = "UNDER"
-                            barrier = "1"
-                            estPayout = "~970%"
-                            message = "🎯 Sniper Mode: Squeezed boundaries. Target extreme bottom edge on digit."
-                            probability = 42f
-                        } else {
+            when {
+                // 📉 Lows Division: {0, 1, 2, 3} -> Evaluates DIGITUNDER
+                anchor in 0..3 -> {
+                    if (span <= 4) {
+                        val proposedBarrier = maxDigit + 2
+                        if (proposedBarrier == 0) {
+                            // Catch UNDER 0: redirect to DIGITDIFF and pick untouched cold digit
                             contractType = "DIFFERS"
-                            barrier = "9"
+                            val diffBarrier = getDigitDiffBarrier(candidates, anchor)
+                            barrier = diffBarrier.toString()
                             estPayout = "~9.8%"
-                            message = "📡 Tactical Option: DIFFERS 9 contract targets cold top edge digits."
+                            message = "🔄 Interceptor Catch UNDER 0: Ignored invalid boundary. Redirected to DIGITDIFF secure anchor separation at $barrier."
                             probability = 91f
+                        } else {
+                            contractType = "UNDER"
+                            barrier = proposedBarrier.coerceIn(0, 9).toString()
+                            estPayout = when (proposedBarrier) {
+                                1 -> "~970%"
+                                2 -> "~460%"
+                                3 -> "~240%"
+                                4 -> "~150%"
+                                5 -> "~100%"
+                                6 -> "~40%"
+                                7 -> "~25%"
+                                8 -> "~15%"
+                                9 -> "~10%"
+                                else -> "~100%"
+                            }
+                            message = "📉 Digit Under Qualified: Primary anchor $anchor in Lows division with safe cushion padding above maximum candidate $maxDigit."
+                            probability = proposedBarrier * 10f
                         }
                     } else {
-                        if (randomChoice < 0.7f) {
-                            contractType = "UNDER"
-                            barrier = "4"
-                            estPayout = "~100%"
-                            message = "🟢 Safety Net: Broad padding. Recommends Under 5 or Under 4 play."
-                            probability = 84f
-                        } else {
-                            contractType = "DIFFERS"
-                            barrier = "8"
-                            estPayout = "~9.8%"
-                            message = "📡 Tactical Option: DIFFERS 8 contract offers maximum cushion safety."
-                            probability = 92f
-                        }
+                        // High-Span Sniper Pivot: exceeds safe threshold
+                        contractType = "DIFFERS"
+                        val diffBarrier = getDigitDiffBarrier(candidates, anchor)
+                        barrier = diffBarrier.toString()
+                        estPayout = "~9.8%"
+                        message = "🎯 High-Span Sniper Pivot: Span $span exceeds SAFE threshold. Shifted to secure DIGITDIFF contract at $barrier."
+                        probability = 91f
                     }
                 }
-                "HIGHER" -> {
-                    if (profile == "RISKY") {
-                        if (randomChoice < 0.7f) {
-                            contractType = "OVER"
-                            barrier = "8"
-                            estPayout = "~900%"
-                            message = "🎯 Sniper Mode: Strike extreme high peaks. Only wins if digit 9 is hit."
-                            probability = 40f
-                        } else {
+                
+                // 📈 Highs Division: {7, 8, 9} -> Evaluates DIGITOVER
+                anchor in 7..9 -> {
+                    if (span <= 4) {
+                        val proposedBarrier = minDigit - 2
+                        if (proposedBarrier >= 9) {
+                            // Catch OVER 9: redirect to DIGITDIFF and pick untouched cold digit
                             contractType = "DIFFERS"
+                            val diffBarrier = getDigitDiffBarrier(candidates, anchor)
+                            barrier = diffBarrier.toString()
+                            estPayout = "~9.8%"
+                            message = "🔄 Interceptor Catch OVER 9: Ignored invalid boundary. Redirected to DIGITDIFF secure anchor separation at $barrier."
+                            probability = 91f
+                        } else {
+                            contractType = "OVER"
+                            barrier = proposedBarrier.coerceIn(0, 9).toString()
+                            estPayout = when (proposedBarrier) {
+                                0 -> "~10%"
+                                1 -> "~15%"
+                                2 -> "~25%"
+                                3 -> "~40%"
+                                4 -> "~65%"
+                                5 -> "~150%"
+                                6 -> "~230%"
+                                7 -> "~450%"
+                                8 -> "~900%"
+                                else -> "~100%"
+                            }
+                            message = "📈 Digit Over Qualified: Primary anchor $anchor in Highs division with safe cushion padding below minimum candidate $minDigit."
+                            probability = (9 - proposedBarrier) * 10f
+                        }
+                    } else {
+                        // High-Span Sniper Pivot: exceeds safe threshold
+                        contractType = "DIFFERS"
+                        val diffBarrier = getDigitDiffBarrier(candidates, anchor)
+                        barrier = diffBarrier.toString()
+                        estPayout = "~9.8%"
+                        message = "🎯 High-Span Sniper Pivot: Span $span exceeds SAFE threshold. Shifted to secure DIGITDIFF contract at $barrier."
+                        probability = 91f
+                    }
+                }
+
+                // ↔️ Mids Division: {4, 5, 6} -> Governed exclusively by center channel parity-hunting
+                else -> {
+                    val switchingToEven = targetResult.microEvenVelocity > 50f
+                    val oddsAreMany = targetResult.macroEvenPct < 50f
+
+                    if (switchingToEven && oddsAreMany) {
+                        // Switching to even, but odds dominate: snap-back to ODD
+                        contractType = "ODD"
+                        barrier = "0"
+                        estPayout = "~95%"
+                        message = "↔️ Spring Elasticity Matrix Parity Lock: Market switching to Even, but Odds dominate. Elastic snap-back executes ODD contract."
+                        probability = 50f
+                    } else if (!switchingToEven && !oddsAreMany) {
+                        // Switching to odd, but evens dominate: snap-back to EVEN
+                        contractType = "EVEN"
+                        barrier = "0"
+                        estPayout = "~95%"
+                        message = "↔️ Spring Elasticity Matrix Parity Lock: Market switching to Odd, but Evens dominate. Elastic snap-back executes EVEN contract."
+                        probability = 50f
+                    } else {
+                        // Normal shifting momentum
+                        if (switchingToEven) {
+                            contractType = "EVEN"
                             barrier = "0"
-                            estPayout = "~9.8%"
-                            message = "📡 Tactical Option: DIFFERS 0 contract targets extreme bottom edge."
-                            probability = 91f
-                        }
-                    } else {
-                        if (randomChoice < 0.7f) {
-                            contractType = "OVER"
-                            barrier = "5"
-                            estPayout = "~150%"
-                            message = "🟢 Safety Net: Broad margin. Collect comfortable high-probability premiums."
-                            probability = 78f
+                            estPayout = "~95%"
+                            message = "↔️ Spring Elasticity Matrix: Pure localized shift momentum locks EVEN parity hunter contract."
+                            probability = 50f
                         } else {
-                            contractType = "DIFFERS"
-                            barrier = "1"
-                            estPayout = "~9.8%"
-                            message = "📡 Tactical Option: DIFFERS 1 contract ignores lower segment fluctuations."
-                            probability = 92f
-                        }
-                    }
-                }
-                "MID_SCATTERED" -> {
-                    if (profile == "RISKY") {
-                        if (randomChoice < 0.40f) {
-                            contractType = "UNDER"
-                            barrier = "3"
-                            estPayout = "~150%"
-                            message = "🎯 Sniper Mode: Squeezed mid segments. High risk payout edge."
-                            probability = 52f
-                        } else if (randomChoice < 0.80f) {
-                            contractType = "OVER"
-                            barrier = "6"
-                            estPayout = "~230%"
-                            message = "🎯 Sniper Mode: Squeezed mid segments. High risk payout edge."
-                            probability = 48f
-                        } else {
-                            contractType = "DIFFERS"
-                            barrier = "5"
-                            estPayout = "~9.8%"
-                            message = "🎯 Sniper Mode: DIFFERS 5 contract bypasses volatile centroid digits."
-                            probability = 90f
-                        }
-                    } else {
-                        if (randomChoice < 0.40f) {
-                            contractType = "UNDER"
-                            barrier = "6"
-                            estPayout = "~40%"
-                            message = "🟢 Safety Net: Macro cushions inside scattered clumping trends of digits."
-                            probability = 86f
-                        } else if (randomChoice < 0.80f) {
-                            contractType = "OVER"
-                            barrier = "3"
-                            estPayout = "~40%"
-                            message = "🟢 Safety Net: Macro cushions inside scattered clumping trends of digits."
-                            probability = 86f
-                        } else {
-                            contractType = "DIFFERS"
-                            barrier = "4"
-                            estPayout = "~9.8%"
-                            message = "🟢 Safety Net: DIFFERS 4 contract filters out central noise with massive margin."
-                            probability = 91f
+                            contractType = "ODD"
+                            barrier = "0"
+                            estPayout = "~95%"
+                            message = "↔️ Spring Elasticity Matrix: Pure localized shift momentum locks ODD parity hunter contract."
+                            probability = 50f
                         }
                     }
                 }
@@ -1732,6 +1748,21 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                 }
             }
         }
+    }
+
+    private fun getDigitDiffBarrier(candidates: List<Int>, anchor: Int): Int {
+        var bestDigit = -1
+        var maxDistance = -1
+        for (digit in 0..9) {
+            if (digit !in candidates) {
+                val dist = Math.abs(digit - anchor)
+                if (dist > maxDistance) {
+                    maxDistance = dist
+                    bestDigit = digit
+                }
+            }
+        }
+        return if (bestDigit != -1) bestDigit else 9
     }
 
     override fun onCleared() {

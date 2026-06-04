@@ -51,6 +51,13 @@ This project is a high-frequency algorithmic derivatives indicator and automated
     *   *AI Co-Pilot Mode*: Ingests raw websocket signals, locks safety buffer bounds, and formats stakes for instant execution with a single intuitive "Execute Preset" trigger.
     *   *Custom Execution Mode*: Empowers independent traders with manual asset selector keys, custom contract category models (UNDER, OVER, DIFFERS, EVEN, ODD), custom barrier offsets, and dynamic payout estimative stats.
 
+### 10. Strictly Enforced Qualification & Spring Elasticity Rules Engine
+*   **Exact Territorial Locks**: Segregated anchor configurations into Lows `{0,1,2,3}` evaluating `DIGITUNDER`, Mids `{4,5,6}` evaluating Even/Odd Parities, and Highs `{7,8,9}` evaluating `DIGITOVER`.
+*   **Span Cushion & Padding**: Confined threshold limits to maximum Span of 4, dynamically computing Cushion offset `x = 2`.
+*   **High-Span Sniper Pivot**: Automatically drops Over/Under limits when localized candidate dispersion leaks wide ($\ge 5$), redirecting elements to secure distance-maximized `DIGITDIFF` (Digit Differs) contracts.
+*   **Spring Elasticity Matrix**: Evaluates macro-to-micro parity transitions to compute accumulation tensions, deploying snap-back executions when opposite structures dominate.
+*   **Boundary Interceptors**: Automatically captures impossible layouts (such as `OVER 9` or `UNDER 0`), redirecting them into untouched cold-digit `DIGITDIFF` loops.
+
 ## Future Plans & Milestones
 *   Exclusively monitor real-time websocket heartbeat streams to guarantee high-uptime session state retention.
 
