@@ -11,31 +11,17 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import okhttp3.*
 import org.json.JSONObject
+import java.math.BigDecimal
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import kotlin.random.Random
 
-/**
- * Real Deriv API WebSocket Manager
- * Uses official Deriv.com Options Trading API for real money trading
- * 
- * API Documentation: https://developers.deriv.com/docs/intro/api-overview
- * REST Base: https://api.derivws.com
- * WebSocket: wss://api.derivws.com/trading/v1/options/ws/demo or /ws/real
- */
 class DerivWebSocketManager {
 
     companion object {
         private const val TAG = "DerivWebSocketManager"
-        
-        // REAL Deriv API endpoints (Options Trading API)
-        private const val REST_BASE_URL = "https://api.derivws.com"
-        private const val WEBSOCKET_PUBLIC_URL = "wss://api.derivws.com/trading/v1/options/ws/public"
-        private const val WEBSOCKET_DEMO_URL = "wss://api.derivws.com/trading/v1/options/ws/demo"
-        private const val WEBSOCKET_REAL_URL = "wss://api.derivws.com/trading/v1/options/ws/real"
-        
-        // App ID - Register your own app at https://app.deriv.com/
-        private const val DEFAULT_APP_ID = "1089"
+        private const val WS_URL = "wss://ws.binaryws.com/websockets/v3?app_id=1089"
         
         val VOLATILITY_SYMBOLS = listOf(
             "1HZ10V" to "Volatility 10 (1S)",
@@ -51,9 +37,9 @@ class DerivWebSocketManager {
     }
 
     private val client = OkHttpClient.Builder()
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
+        .writeTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
         .build()
 
     private var webSocket: WebSocket? = null
@@ -63,12 +49,6 @@ class DerivWebSocketManager {
     // Thread-safe history storage for each symbol
     private val histories = ConcurrentHashMap<String, MutableList<Int>>()
     private val lastPrices = ConcurrentHashMap<String, Double>()
-
-    // Authentication state
-    private var authToken: String = ""
-    private var appId: String = DEFAULT_APP_ID
-    private var currentAccountId: String = ""
-    private var isDemoAccount: Boolean = true
 
     // States
     private val _connectionState = MutableStateFlow("DISCONNECTED")
@@ -104,62 +84,72 @@ class DerivWebSocketManager {
     private val _authErrorState = MutableStateFlow<String?>(null)
     val authErrorState: StateFlow<String?> = _authErrorState.asStateFlow()
 
+    // --- DERIV METRICS & LIVE TRADING DATA ---
+    data class WsLog(val id: Long, val timestamp: Long, val message: String, val type: String) // "INFO", "ERROR", "OUTBOUND", "INBOUND"
+    data class WsContract(
+        val contractId: Long,
+        val buyPrice: Double,
+        val contractType: String,
+        val symbol: String,
+        val status: String = "OPEN", // "OPEN", "WON", "LOST"
+        val profit: Double = 0.0,
+        val bidPrice: Double = 0.0,
+        val exitDigit: Int? = null,
+        val timestamp: Long = System.currentTimeMillis()
+    )
+
+    private val _liveLogs = MutableStateFlow<List<WsLog>>(emptyList())
+    val liveLogs: StateFlow<List<WsLog>> = _liveLogs.asStateFlow()
+
+    private val _activeContracts = MutableStateFlow<List<WsContract>>(emptyList())
+    val activeContracts: StateFlow<List<WsContract>> = _activeContracts.asStateFlow()
+
+    private val _realTradeHistory = MutableStateFlow<List<WsContract>>(emptyList())
+    val realTradeHistory: StateFlow<List<WsContract>> = _realTradeHistory.asStateFlow()
+
+    private var logIdCounter = 0L
+
+    fun addLog(msg: String, type: String = "INFO") {
+        val currentLogs = _liveLogs.value.toMutableList()
+        currentLogs.add(0, WsLog(logIdCounter++, System.currentTimeMillis(), msg, type))
+        if (currentLogs.size > 150) {
+            currentLogs.removeAt(currentLogs.size - 1)
+        }
+        _liveLogs.value = currentLogs
+    }
+
     private var pingSendTime = 0L
     private var pingRunnable: Runnable? = null
-    
-    // NO SIMULATION - Real API only
-    private var isConnectedToRealApi = false
 
     init {
+        // Initialize history lists
         for ((symbol, _) in VOLATILITY_SYMBOLS) {
             histories[symbol] = mutableListOf()
         }
-    }
-
-    /**
-     * Configure authentication before connecting
-     */
-    fun setAuthentication(token: String, accountId: String, appId: String = DEFAULT_APP_ID, isDemo: Boolean = true) {
-        this.authToken = token
-        this.currentAccountId = accountId
-        this.appId = appId
-        this.isDemoAccount = isDemo
     }
 
     fun connect() {
         if (webSocket != null) return
 
         _connectionState.value = "CONNECTING..."
-        Log.d(TAG, "Connecting to Deriv API WebSocket...")
-
-        // Use authenticated WebSocket URL if we have a token, otherwise use public endpoint
-        val wsUrl = if (authToken.isNotEmpty() && currentAccountId.isNotEmpty()) {
-            if (isDemoAccount) {
-                "$WEBSOCKET_DEMO_URL?app_id=$appId&token=$authToken"
-            } else {
-                "$WEBSOCKET_REAL_URL?app_id=$appId&token=$authToken"
-            }
-        } else {
-            WEBSOCKET_PUBLIC_URL
-        }
-
-        Log.d(TAG, "WebSocket URL: ${wsUrl.substring(0, 50)}...")
+        Log.d(TAG, "Connecting to Deriv WebSocket...")
+        addLog("Initiating connection to Deriv secure websockets: $WS_URL", "INFO")
 
         val request = Request.Builder()
-            .url(wsUrl)
+            .url(WS_URL)
             .build()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 _connectionState.value = "CONNECTED"
-                isConnectedToRealApi = true
-                Log.d(TAG, "Deriv API WebSocket Connected!")
+                Log.d(TAG, "Deriv WebSocket Open!")
+                addLog("Secure WebSocket Connection Established successfully!", "INFO")
                 
-                if (authToken.isNotEmpty()) {
-                    _connectionState.value = "AUTHORIZING..."
-                }
-                
+                // Subscribe to all volatility streams
                 subscribeToAllStreams(webSocket)
+                addLog("Subscribed to Volatility Streams: ${VOLATILITY_SYMBOLS.map { it.first }.joinToString()}", "INFO")
+                
+                // Start ping loop
                 startPingLoop()
             }
 
@@ -168,21 +158,21 @@ class DerivWebSocketManager {
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e(TAG, "WebSocket connection failed: ${t.message}")
-                _connectionState.value = "CONNECTION FAILED"
-                isConnectedToRealApi = false
+                Log.e(TAG, "WebSocket failure: ${t.message}")
+                _connectionState.value = "SERVER OFFLINE"
                 this@DerivWebSocketManager.webSocket = null
-                _authErrorState.value = "Failed to connect: ${t.message}"
+                addLog("WebSocket socket failure: ${t.message}. Reconnect to a working network.", "ERROR")
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 _connectionState.value = "DISCONNECTING"
+                addLog("WebSocket closing: $reason (code: $code)", "INFO")
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 _connectionState.value = "DISCONNECTED"
-                isConnectedToRealApi = false
                 this@DerivWebSocketManager.webSocket = null
+                addLog("WebSocket channel disconnected cleanly.", "INFO")
             }
         })
     }
@@ -192,7 +182,7 @@ class DerivWebSocketManager {
         webSocket?.close(1000, "App exit")
         webSocket = null
         _connectionState.value = "DISCONNECTED"
-        isConnectedToRealApi = false
+        addLog("Application-triggered WebSocket shutdown.", "INFO")
     }
 
     private fun subscribeToAllStreams(ws: WebSocket) {
@@ -202,7 +192,6 @@ class DerivWebSocketManager {
                 put("subscribe", 1)
             }
             ws.send(subJson.toString())
-            Log.d(TAG, "Subscribed to: $symbol")
         }
     }
 
@@ -240,8 +229,15 @@ class DerivWebSocketManager {
             } else if (json.has("error")) {
                 val errorObj = json.optJSONObject("error")
                 val errMsg = errorObj?.optString("message") ?: "Unknown API Error"
-                _authErrorState.value = errMsg
-                _connectionState.value = "AUTH_FAILED"
+                val errCode = errorObj?.optString("code") ?: "UNKNOWN"
+                addLog("API Error [$errCode]: $errMsg", "ERROR")
+                
+                if (msgType == "authorize") {
+                    _connectionState.value = "AUTH_FAILED"
+                    _authErrorState.value = errMsg
+                    _authorizedBalance.value = null
+                    _authorizedScopes.value = emptyList()
+                }
             } else if (msgType == "authorize") {
                 val authObj = json.optJSONObject("authorize")
                 if (authObj != null) {
@@ -270,14 +266,58 @@ class DerivWebSocketManager {
                     _authorizedScopes.value = scopesList
                     _authErrorState.value = null
                     _connectionState.value = "AUTHORIZED"
+                    
+                    addLog("Authorized context: $fullname ($email) | Balance: $$balance $currency | Scopes: $scopesList", "INBOUND")
                 }
             } else if (msgType == "buy") {
                 val buyObj = json.optJSONObject("buy")
                 if (buyObj != null) {
+                    val contractId = buyObj.optLong("contract_id", -1L)
+                    val buyPrice = buyObj.optDouble("buy_price", 0.0)
+                    val symbol = buyObj.optString("underlying", "R_10")
+                    val contractType = buyObj.optString("contract_type", "UNKNOWN")
                     val balanceAfter = buyObj.optDouble("balance_after")
                     if (!balanceAfter.isNaN()) {
                         _authorizedBalance.value = balanceAfter
                     }
+                    if (contractId != -1L) {
+                        val contract = WsContract(
+                            contractId = contractId,
+                            buyPrice = buyPrice,
+                            contractType = contractType,
+                            symbol = symbol,
+                            status = "OPEN"
+                        )
+                        addActiveContract(contract)
+                        addLog("Contract purchased: ID $contractId on $symbol ($contractType). Stake: $$buyPrice.", "INBOUND")
+                        subscribeToContractResult(contractId)
+                    }
+                }
+            } else if (msgType == "proposal_open_contract") {
+                val pocObj = json.optJSONObject("proposal_open_contract")
+                if (pocObj != null) {
+                    val contractId = pocObj.optLong("contract_id")
+                    val isSold = pocObj.optInt("is_sold", 0) == 1
+                    val underlying = pocObj.optString("underlying", "")
+                    val contractType = pocObj.optString("contract_type", "")
+                    val buyPrice = pocObj.optDouble("buy_price", 0.0)
+                    val bidPrice = pocObj.optDouble("bid_price", 0.0)
+                    val profit = pocObj.optDouble("profit", 0.0)
+                    val status = pocObj.optString("status", "open")
+                    val exitTick = pocObj.optInt("exit_tick", -1)
+                    val exitDigit = if (exitTick != -1) (exitTick % 10) else null
+
+                    updateActiveContract(
+                        contractId = contractId,
+                        bidPrice = bidPrice,
+                        status = status,
+                        profit = profit,
+                        exitDigit = exitDigit,
+                        isSold = isSold,
+                        underlying = underlying,
+                        contractType = contractType,
+                        buyPrice = buyPrice
+                    )
                 }
             } else if (msgType == "tick") {
                 val tickObj = json.optJSONObject("tick")
@@ -295,10 +335,90 @@ class DerivWebSocketManager {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error parsing message: ${e.message}")
+            addLog("Error parsing WebSocket JSON frame: ${e.message}", "ERROR")
+        }
+    }
+
+    private fun addActiveContract(contract: WsContract) {
+        val list = _activeContracts.value.toMutableList()
+        list.removeAll { it.contractId == contract.contractId }
+        list.add(contract)
+        _activeContracts.value = list
+    }
+
+    private fun updateActiveContract(
+        contractId: Long,
+        bidPrice: Double,
+        status: String,
+        profit: Double,
+        exitDigit: Int?,
+        isSold: Boolean,
+        underlying: String,
+        contractType: String,
+        buyPrice: Double
+    ) {
+        if (isSold) {
+            val activeList = _activeContracts.value.toMutableList()
+            activeList.removeAll { it.contractId == contractId }
+            _activeContracts.value = activeList
+
+            val finalContract = WsContract(
+                contractId = contractId,
+                buyPrice = buyPrice,
+                contractType = contractType,
+                symbol = underlying,
+                status = status.uppercase(),
+                profit = profit,
+                bidPrice = bidPrice,
+                exitDigit = exitDigit
+            )
+            val histList = _realTradeHistory.value.toMutableList()
+            histList.removeAll { it.contractId == contractId }
+            histList.add(0, finalContract)
+            if (histList.size > 100) histList.removeAt(histList.size - 1)
+            _realTradeHistory.value = histList
+            addLog("Contract ID $contractId finished: ${status.uppercase()}. Profit/Loss: $${String.format("%.2f", profit)} (Exit digit: $exitDigit)", "INFO")
+        } else {
+            val activeList = _activeContracts.value.toMutableList()
+            val index = activeList.indexOfFirst { it.contractId == contractId }
+            if (index != -1) {
+                val existing = activeList[index]
+                activeList[index] = existing.copy(bidPrice = bidPrice, profit = profit)
+                _activeContracts.value = activeList
+            } else {
+                activeList.add(WsContract(
+                    contractId = contractId,
+                    buyPrice = buyPrice,
+                    contractType = contractType,
+                    symbol = underlying,
+                    status = "OPEN",
+                    profit = profit,
+                    bidPrice = bidPrice
+                ))
+                _activeContracts.value = activeList
+            }
+        }
+    }
+
+    private fun subscribeToContractResult(contractId: Long) {
+        val ws = webSocket
+        if (ws != null) {
+            try {
+                val json = JSONObject().apply {
+                    put("proposal_open_contract", 1)
+                    put("contract_id", contractId)
+                    put("subscribe", 1)
+                }
+                ws.send(json.toString())
+                addLog("Sent active open contract tracking request for: $contractId", "OUTBOUND")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error subscribing to contract result: ${e.message}")
+            }
         }
     }
 
     fun sendAuthorizeRequest(token: String) {
+        addLog("Sending Authorization request token: ${if (token.length > 5) token.take(5) + "..." else token}", "OUTBOUND")
         val ws = webSocket
         if (ws != null) {
             try {
@@ -308,11 +428,13 @@ class DerivWebSocketManager {
                 ws.send(json.toString())
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending authorize request: ${e.message}")
+                addLog("Error transmitting authorizing packet: ${e.message}", "ERROR")
             }
         }
     }
 
     fun sendBuyRequest(symbol: String, contractType: String, barrier: String, stake: Double, durationTicks: Int = 2) {
+        addLog("Transmitting Buy parameter proposal contract: $contractType on $symbol (barrier: $barrier, stake: $$stake, duration: $durationTicks t)", "OUTBOUND")
         val ws = webSocket
         if (ws != null) {
             try {
@@ -336,9 +458,9 @@ class DerivWebSocketManager {
                     put("parameters", params)
                 }
                 ws.send(json.toString())
-                Log.d(TAG, "BUY REQUEST: $contractType $symbol barrier:$barrier stake:$$stake")
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending buy request: ${e.message}")
+                addLog("Error transmitting buy contract details: ${e.message}", "ERROR")
             }
         }
     }
@@ -365,17 +487,14 @@ class DerivWebSocketManager {
         return lastPrices[symbol] ?: 100.0
     }
 
-    fun isConnectedToRealApi(): Boolean {
-        return isConnectedToRealApi
-    }
-    
-    /**
-     * @deprecated Use isConnectedToRealApi() instead. Kept for backward compatibility.
-     */
     fun isSimulating(): Boolean {
-        return !isConnectedToRealApi
+        return false
     }
 
+    /**
+     * Highly robust double-to-last-digit extractor. Formats specifically for pip_size to guarantee accurate
+     * representation of fractional tick data as received in financial streams.
+     */
     private fun extractLastDigit(quote: Double, pipSize: Int): Int {
         val decimals = if (pipSize in 0..8) pipSize else 3
         val formatted = String.format(Locale.US, "%.${decimals}f", quote)

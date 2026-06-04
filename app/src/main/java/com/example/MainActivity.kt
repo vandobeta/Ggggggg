@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -26,6 +27,7 @@ import com.example.ui.screens.FirstLaunchSetupScreen
 import com.example.ui.screens.PredictionsScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.SignalsScreen
+import com.example.ui.screens.DerivLiveScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.viewmodel.DigitAnalysisViewModel
 import androidx.compose.foundation.background
@@ -70,6 +72,20 @@ class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
+    
+    // Configure IMMERSIVE STICKY full screen parameters
+    try {
+        window.decorView.systemUiVisibility = (
+            android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            or android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            or android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            or android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+            or android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
+            or android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+        )
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
     
     setContent {
       val userSettings by viewModel.userSettings.collectAsState()
@@ -288,6 +304,30 @@ class MainActivity : ComponentActivity() {
                   indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                 )
               )
+              NavigationBarItem(
+                selected = currentScreen == "DERIV_LIVE",
+                onClick = { currentScreen = "DERIV_LIVE" },
+                icon = { 
+                  Icon(
+                    imageVector = Icons.Default.Info, 
+                    contentDescription = "Deriv Live" 
+                  ) 
+                },
+                label = { 
+                  Text(
+                    text = "DERIV LIVE", 
+                    fontSize = 10.sp, 
+                    fontWeight = FontWeight.Bold 
+                  ) 
+                },
+                colors = NavigationBarItemDefaults.colors(
+                  selectedIconColor = MaterialTheme.colorScheme.primary,
+                  selectedTextColor = MaterialTheme.colorScheme.primary,
+                  unselectedIconColor = Color.Gray,
+                  unselectedTextColor = Color.Gray,
+                  indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                )
+              )
             }
           }
         ) { innerPadding ->
@@ -320,6 +360,12 @@ class MainActivity : ComponentActivity() {
               }
               "SETTINGS" -> {
                 SettingsScreen(
+                  viewModel = viewModel,
+                  modifier = Modifier.padding(innerPadding)
+                )
+              }
+              "DERIV_LIVE" -> {
+                DerivLiveScreen(
                   viewModel = viewModel,
                   modifier = Modifier.padding(innerPadding)
                 )

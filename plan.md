@@ -1,63 +1,39 @@
-# Project Plan & Milestone Tracker
+# 📝 Deriv High-Fidelity Integration Milestones Tracker
 
-This project is a high-frequency algorithmic derivatives indicator and automated co-pilot executor for trading parity digit contracts (UNDER, OVER, DIFFERS, EVEN, ODD) using WebSocket parity streams.
+This document outlines structural goals, real accomplishments, and pending directions for the authentic Deriv API connection suite and analytical platform.
 
-## Done / Completed Milestones
+---
 
-### 1. Unified Global Header & Account Type Switching
-*   **Demo & Real Account Segregation**: Integrated independent demo vs real wallet balances and persisted preferences inside local SQLite Room configuration database.
-*   **Header Interface**: Integrated a cohesive, modern Material 3 global navigation bar header inside `MainActivity.kt` with instant toggle capability to transition seamlessly between test and live sandboxes.
-*   **Error Banner**: Embedded a high-visibility, dismissible error and websocket connection status alert banner directly coupled to ViewModel states.
+## 🧭 Active Milestones
 
-### 2. Room Trade History Persistence Log Engine
-*   **Trade Database Entities**: Designed `TradeHistory` Room scheme in `TradeHistory.kt` with complete transaction metadata including timestamps, stakes, barrier thresholds, contract specifications, entry digits, exit digits, status (WIN, LOSS, PENDING), and net performance payout margins.
-*   **Observer Pipelines**: Bound StateFlow collectors in `DigitAnalysisViewModel` to retrieve transactional ledger streams in real-time, handling instant clearing/purging operations cleanly.
+### ✅ Milestone 1: Plumbing Secure State & Terminal Flows
+- Expose direct indicators from Deriv API standard specifications.
+- Configure secure, production-ready live websocket connection to `wss://ws.binaryws.com/websockets/v3?app_id=1089` representing direct, zero-simulation market feeds.
+- Maintain accurate connection state metrics: Connection States, Ping RTT latency in milliseconds, and WebSocket transaction streams.
+- Feed logs directly into a high-contrast console terminal using styled `WsLog` frames (`INFO`, `ERROR`, `OUTBOUND`, `INBOUND`).
+- Persist live-authorized details including `fullname`, `email`, `currency`, and `scopes` list.
 
-### 3. Interactive RADAR Manual Trade Execution Deck
-*   **Manual Executor Module**: Designed a dedicated manual action area inside `SignalsScreen.kt` featuring real-time input fields bound to custom preset stakes (`$1.00`, `$5.00`, `$10.00`, `$25.00`, `$50.00`).
-*   **Dynamic Triggers**: Linked manual submission buttons dynamically to execute contracts using raw Deriv token REST pathways or local simulator fallback pipelines instantly.
+### ✅ Milestone 2: Direct Database & Dynamic Balance Synchronization
+- Automatically collect WebSocket-level active balances (`authorizedBalance`) and client details (`authorizedTraderName`).
+- Sync results directly to local SQLite via Room's persistence repository (`AppSettings`) so both Demo and Real account balance cards reflect changes live across other dashboards.
 
-### 4. Transaction History Dashboard Tab
-*   **Sub-Tab Selector**: Expanded the tab structures inside `SignalsScreen.kt` from 2 options to 3: **RADAR DECK** (Live analysis), **TRADES** (Live performance logs), and **SIGNALS** (Historical recommendation stats).
-*   **Net Performance Aggregations**: Calculated and displayed actual session win percentage metrics, cumulative Profit/Loss markers, and active transaction listings with colored card highlights.
+### ✅ Milestone 3: Live Active Contract Tracking Streams
+- Hook custom handlers into the `proposal_open_contract` channel for purchases, buying quotes, and actual results tracking.
+- Collect live bid price fluctuations and compute actual wins/losses instantly without emulation fallback blocks.
 
-### 5. Algorithmic Debug Separations
-*   **Developer Consolidation**: Moved diagnostic facilities and demo alarm simulations inside `SettingsScreen.kt` behind a secure, collapsible developer drawer, preserving clean aesthetics for retail configurations.
+### ✅ Milestone 4: Immersive Real-Time Trader Terminal (DERIV LIVE)
+- Build a dedicated, full-screen dashboard consisting of:
+  1. Connection Diagnostics
+  2. Verifiable Client Profile Data
+  3. Interactive Active Trade Contract trackers
+  4. Monospace Terminal System console log with color states
+  5. Decoded history outputs (Wins, Losses, Exits, Profits)
+- Embed full-screen system flags at activity launch.
 
-### 6. Mathematically Locked Out-Of-Span Weight Engine
-*   **QuantitativeContractCompiler**: Introduced mathematically locked, weight-aware out-of-span routing.
-*   **Weight & Position Optimization**: Candidate matrix prioritized with `[Primary Anchor (Index 0), Noise Guard 1, Noise Guard 2]`. Configured Index 0 carry supreme predictable gravity when Even/Odd ratios stretch.
-*   **Stability Gates (S101)**:
-    *   *Dead Zone* (<40%): Terminate/suspend all outputs.
-    *   *Active Zone* (40%-85%): Authorize Over/Under and Even/Odd modes.
-    *   *Sniper Zone* (>85%): Unlocks high-conviction Differs signals.
-    *   *Parity Kill-Switch*: Active under Span 3-4 and Stability < 60% to safely abort pending parity orders.
-    *   *Absolute Blacklist*: Span 9 triggers a hard lockout.
+---
 
-### 7. Structured Setup Onboarding Plan & Profile prefill
-*   **Up-Front Token Verification**: Reworked first-launch wizard structure to request secure API token immediately in Step 1.
-*   **On-The-Fly Synchronization**: Subscribes to authorize callback pipelines to download profile name, live balance, country, currency, and email directly.
-*   **Foolproof Multi-Prefill**: Automatically populates Step 2 profile details with downloaded credentials, enabling seamless custom updates.
-
-### 8. Auto-Best Volatility Index Optimizer
-*   **Continuously Scanned Index Pipeline**: Scans all volatility indices in the background.
-*   **Scored Rankings**: Ranks markets dynamically using strategic scoring ($E = 0.3M + 0.5V + 0.2A$).
-*   **Zero-Overhead Hot-Swaps**: Automatically switches Selected Symbol pointer to index with highest edge potential score on every tick update.
-
-### 9. Fully-Featured MANUAL TRADER Tab with Algorithmic Visualizers
-*   **Segmented Multi-Tab UI**: Successfully integrated the new "MANUAL" trader sub-tab among active tabs, providing dedicated view separation.
-*   **Dynamic Digit Percentage Cycles**: Embedded a beautiful 10-digit circular indicator grid rendering real-time percentage frequencies dynamically calculated from live historical volatility ticks.
-*   **Dual Trading Orchestrator**:
-    *   *AI Co-Pilot Mode*: Ingests raw websocket signals, locks safety buffer bounds, and formats stakes for instant execution with a single intuitive "Execute Preset" trigger.
-    *   *Custom Execution Mode*: Empowers independent traders with manual asset selector keys, custom contract category models (UNDER, OVER, DIFFERS, EVEN, ODD), custom barrier offsets, and dynamic payout estimative stats.
-
-### 10. Strictly Enforced Qualification & Spring Elasticity Rules Engine
-*   **Exact Territorial Locks**: Segregated anchor configurations into Lows `{0,1,2,3}` evaluating `DIGITUNDER`, Mids `{4,5,6}` evaluating Even/Odd Parities, and Highs `{7,8,9}` evaluating `DIGITOVER`.
-*   **Span Cushion & Padding**: Confined threshold limits to maximum Span of 4, dynamically computing Cushion offset `x = 2`.
-*   **High-Span Sniper Pivot**: Automatically drops Over/Under limits when localized candidate dispersion leaks wide ($\ge 5$), redirecting elements to secure distance-maximized `DIGITDIFF` (Digit Differs) contracts.
-*   **Spring Elasticity Matrix**: Evaluates macro-to-micro parity transitions to compute accumulation tensions, deploying snap-back executions when opposite structures dominate.
-*   **Boundary Interceptors**: Automatically captures impossible layouts (such as `OVER 9` or `UNDER 0`), redirecting them into untouched cold-digit `DIGITDIFF` loops.
-
-## Future Plans & Milestones
-*   Exclusively monitor real-time websocket heartbeat streams to guarantee high-uptime session state retention.
-
+## ❓ Follow-up Verification Questions
+*To keep implementation strictly aligned with expectations without any assumptions:*
+1. Do you need a dedicated webhook receiver or background alert system when the application is completely minimized, or is the dual-mode Picture-in-Picture logic and the active dashboard sufficient?
+2. Should the historical outcomes filter by specific underlying assets (e.g., Volatility 10 Index only) or is the global chronological list of completes preferred?
+3. What is the preferred minimum threshold latency warning value? (Our default is set to color-code yellow above `150ms` and green below it).   

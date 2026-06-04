@@ -188,6 +188,15 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
     val pingState: StateFlow<Long> = wsManager.pingState
     val tickUpdateFlow: StateFlow<Pair<String, Int>?> = wsManager.tickUpdateFlow
 
+    val liveLogs: StateFlow<List<com.example.data.DerivWebSocketManager.WsLog>> = wsManager.liveLogs
+    val activeContracts: StateFlow<List<com.example.data.DerivWebSocketManager.WsContract>> = wsManager.activeContracts
+    val realTradeHistory: StateFlow<List<com.example.data.DerivWebSocketManager.WsContract>> = wsManager.realTradeHistory
+
+    fun forceReconnectWebSocket() {
+        wsManager.disconnect()
+        wsManager.connect()
+    }
+
     fun getHistoryFor(symbol: String): List<Int> {
         return wsManager.getHistoryFor(symbol)
     }
@@ -219,6 +228,32 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
         observePracticeBets()
         observeTradeHistory()
         startSignalsLoop()
+
+        // Sync real-time balance from secure WebSocket directly to local DB
+        viewModelScope.launch {
+            wsManager.authorizedBalance.collect { balance ->
+                if (balance != null) {
+                    val current = _userSettings.value
+                    if (current.isDemoAccount && current.demoWalletBalance != balance) {
+                        repository.saveSettings(current.copy(demoWalletBalance = balance))
+                    } else if (!current.isDemoAccount && current.realWalletBalance != balance) {
+                        repository.saveSettings(current.copy(realWalletBalance = balance))
+                    }
+                }
+            }
+        }
+
+        // Sync validated trader name from secure WebSocket directly to local DB
+        viewModelScope.launch {
+            wsManager.authorizedTraderName.collect { name ->
+                if (!name.isNullOrBlank()) {
+                    val current = _userSettings.value
+                    if (current.traderName != name) {
+                        repository.saveSettings(current.copy(traderName = name))
+                    }
+                }
+            }
+        }
 
         // Recover unresolved pending trades from database in the background
         viewModelScope.launch(Dispatchers.IO) {
@@ -436,9 +471,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                     _navErrorMessage.value = null // clear prior errors
                     
                     // Force authorize on socket so real-time orders can execute
-                    if (!wsManager.isSimulating()) {
-                        wsManager.sendAuthorizeRequest(token)
-                    }
+                    wsManager.sendAuthorizeRequest(token)
                     
                     viewModelScope.launch {
                         repository.saveSettings(newSettings)
@@ -453,7 +486,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                 _userSettings.value = newSettings
                 
                 // If real-time token is edited/updated, trigger a fresh secure auth request to keep states fully synced
-                if (newSettings.derivToken != oldSettings.derivToken && newSettings.derivToken.isNotEmpty() && !wsManager.isSimulating()) {
+                if (newSettings.derivToken != oldSettings.derivToken && newSettings.derivToken.isNotEmpty()) {
                     wsManager.sendAuthorizeRequest(newSettings.derivToken)
                 }
             }
@@ -463,16 +496,6 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
     fun validateTokenAndInitializeEngine(token: String, isDemo: Boolean, onCompleted: (Boolean, String) -> Unit) {
         if (token.isEmpty()) {
             onCompleted(false, "Deriv security token is empty.")
-            return
-        }
-
-        if (wsManager.isSimulating()) {
-            viewModelScope.launch {
-                _tokenValidationMessage.value = "CONNECTING & VERIFYING API TOKEN..."
-                delay(1200)
-                _tokenValidationMessage.value = null
-                onCompleted(true, "Sandbox validated tokens successfully! Default scopes [read, trade, balance] and balance $10,000.00 loaded.")
-            }
             return
         }
 
@@ -721,7 +744,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                 predictionsList = predictions,
                 tickHistory = history,
                 lastTickValue = wsManager.getLastPriceFor(symbol),
-                isStableConnection = !wsManager.isSimulating()
+                isStableConnection = wsManager.connectionState.value == "CONNECTED" || wsManager.connectionState.value == "AUTHORIZED"
             )
         }
 
