@@ -20,11 +20,23 @@ class QuantitativeContractCompiler {
 
     fun compileContractStrategy(
         currentDigit: Int,
-        frequencies: IntArray, // Frequency map of the 50-tick lookback window
+        frequencies: IntArray, // Frequency map of the lookback window
         oddPercentage: Float,
         evenPercentage: Float,
         completeCandidates: List<Int> // Ordered: [Primary Anchor (Index 0), Noise Guard 1, Noise Guard 2]
     ): StrategySelectionResult {
+
+        if (completeCandidates.size < 3) {
+            return StrategySelectionResult(
+                currentDigit, 0.0f, -1, -1, completeCandidates,
+                "NONE", "-1", false, "ABORTED: Empty candidate pools."
+            )
+        }
+
+        val primaryAnchor = completeCandidates[0]
+        val maxDigit = completeCandidates.maxOrNull() ?: 0
+        val minDigit = completeCandidates.minOrNull() ?: 0
+        val calculatedSpan = maxDigit - minDigit
 
         val rawDivergence = abs(oddPercentage - evenPercentage)
         val stabilityScoreS101 = ((rawDivergence / maxDivergenceThreshold) * 100f).coerceAtMost(100f)
@@ -32,19 +44,10 @@ class QuantitativeContractCompiler {
         // GATEKEEPER 1: DEAD ZONE LOCKOUT
         if (stabilityScoreS101 < 40.0f) {
             return StrategySelectionResult(
-                currentDigit, stabilityScoreS101, -1, -1, completeCandidates,
+                currentDigit, stabilityScoreS101, calculatedSpan, primaryAnchor, completeCandidates,
                 "NONE", "-1", false, "LOCKOUT: Dead Zone (<40%)."
             )
         }
-
-        val primaryAnchor = completeCandidates.getOrNull(0) ?: return StrategySelectionResult(
-            currentDigit, stabilityScoreS101, -1, -1, completeCandidates,
-            "NONE", "-1", false, "ABORTED: Empty candidate pools."
-        )
-        
-        val maxDigit = completeCandidates.maxOrNull() ?: 0
-        val minDigit = completeCandidates.minOrNull() ?: 0
-        val calculatedSpan = maxDigit - minDigit
 
         // EXCLUSION GUARD: Hard blacklist on absolute randomness
         if (calculatedSpan == 9) {
@@ -54,73 +57,96 @@ class QuantitativeContractCompiler {
             )
         }
 
-        val isAnchorOdd = primaryAnchor % 2 != 0
         var resolvedContract = "NONE"
         var resolvedBarrier = "-1"
         var isApproved = true
         var logMessage = "SUCCESS: Optimal Out-of-Span Matrix Locked"
 
+        // Explicit Digit Territories
+        val lowDivision = listOf(0, 1, 2, 3)
+        val midDivision = listOf(4, 5, 6)
+        val highDivision = listOf(7, 8, 9)
+
         when {
-            // ENGINE A: OVER/UNDER (Trend-Following) -> Span <= 2
-            calculatedSpan <= 2 -> {
-                if (stabilityScoreS101 > 85.0f) {
-                    resolvedContract = "DIGITDIFF"
-                    resolvedBarrier = primaryAnchor.toString()
-                    logMessage = "EXECUTE: Sniper Zone Override on Span <= 2. Targeting Anchor."
-                } else {
-                    // Force dynamic out-of-span cushioning using safety buffers 4, 5, 6
-                    if (evenPercentage >= 55.0f) { 
-                        // Even dominates -> Reverting to Odds. Highest weight is Odd.
-                        resolvedContract = "DIGITUNDER"
-                        resolvedBarrier = (maxDigit + 2).coerceIn(4, 6).toString()
+            // 1. 📉 DIGIT UNDER TERRITORY (Lows Division)
+            primaryAnchor in lowDivision -> {
+                if (calculatedSpan <= 4) {
+                    val calculatedBarrier = maxDigit + 2
+                    // Invalid Boundary Interception: Catch UNDER 0 or any mathematically absurd boundary
+                    if (calculatedBarrier <= 0) {
+                        val (pType, pBarrier) = performDigitDiffRedirect(primaryAnchor, completeCandidates, frequencies)
+                        resolvedContract = pType
+                        resolvedBarrier = pBarrier
+                        logMessage = "INTERCEPTED: Invalid DIGITUNDER barrier ($calculatedBarrier <= 0). Redirected to DIGITDIFF safely."
                     } else {
-                        resolvedContract = "DIGITOVER"
-                        resolvedBarrier = (minDigit - 2).coerceIn(4, 6).toString()
+                        resolvedContract = "DIGITUNDER"
+                        resolvedBarrier = calculatedBarrier.coerceIn(0, 9).toString()
+                        logMessage = "SUCCESS: DIGITUNDER approved. Barrier calculated out-of-span: $resolvedBarrier."
                     }
+                } else {
+                    // Span breaks wide: The High-Span Sniper Pivot -> spawns DIGITDIFF
+                    val (pType, pBarrier) = performDigitDiffRedirect(primaryAnchor, completeCandidates, frequencies)
+                    resolvedContract = pType
+                    resolvedBarrier = pBarrier
+                    logMessage = "PIVOT: High-Span DIGITUNDER blocked (Span $calculatedSpan >= 5). Spawning DIGITDIFF safely targeting $resolvedBarrier."
                 }
             }
 
-            // ENGINE B: EVEN/ODD (Parity-Hunting) -> Span 3 to 4
-            calculatedSpan in 3..4 -> {
-                // HARD KILL-SWITCH: Drop trade if stability falls out of strict bounds
+            // 2. 📈 DIGIT OVER TERRITORY (Highs Division)
+            primaryAnchor in highDivision -> {
+                if (calculatedSpan <= 4) {
+                    val calculatedBarrier = minDigit - 2
+                    // Invalid Boundary Interception: Catch OVER 9, UNDER 0, or negative boundaries
+                    if (calculatedBarrier < 0 || calculatedBarrier >= 9) {
+                        val (pType, pBarrier) = performDigitDiffRedirect(primaryAnchor, completeCandidates, frequencies)
+                        resolvedContract = pType
+                        resolvedBarrier = pBarrier
+                        logMessage = "INTERCEPTED: Invalid DIGITOVER barrier ($calculatedBarrier). Redirected to DIGITDIFF safely."
+                    } else {
+                        resolvedContract = "DIGITOVER"
+                        resolvedBarrier = calculatedBarrier.toString()
+                        logMessage = "SUCCESS: DIGITOVER approved. Barrier calculated out-of-span: $resolvedBarrier."
+                    }
+                } else {
+                    // Span breaks wide: The High-Span Sniper Pivot -> spawns DIGITDIFF
+                    val (pType, pBarrier) = performDigitDiffRedirect(primaryAnchor, completeCandidates, frequencies)
+                    resolvedContract = pType
+                    resolvedBarrier = pBarrier
+                    logMessage = "PIVOT: High-Span DIGITOVER blocked (Span $calculatedSpan >= 5). Spawning DIGITDIFF safely targeting $resolvedBarrier."
+                }
+            }
+
+            // 3. ↔️ EVEN / ODD PARITY-HUNTING TERRITORY (Mids Division)
+            primaryAnchor in midDivision -> {
+                // Parity Kill-Switch: Active under Span 3-4 and Stability < 60%
                 if (stabilityScoreS101 < 60.0f) {
                     return StrategySelectionResult(
                         currentDigit, stabilityScoreS101, calculatedSpan, primaryAnchor, completeCandidates,
-                        "NONE", "-1", false, "KILL-SWITCH: Parity aborted. Stability below 60%."
+                        "NONE", "-1", false, "KILL-SWITCH: Parity aborted. Stability below 60.0%."
                     )
                 }
 
-                if (stabilityScoreS101 > 85.0f) {
-                    resolvedContract = "DIGITDIFF"
-                    resolvedBarrier = primaryAnchor.toString()
-                    logMessage = "EXECUTE: Sniper Zone Override on Span 3-4. Targeting Anchor."
-                } else {
-                    // Factor in structural weight gravity directly
-                    resolvedContract = if (isAnchorOdd) "DIGITODD" else "DIGITEVEN"
-                    resolvedBarrier = "N/A"
+                // Spring Elasticity Matrix
+                val isMacroEven = evenPercentage > oddPercentage
+                val localEvens = completeCandidates.count { it % 2 == 0 }
+                val localOdds = completeCandidates.count { it % 2 != 0 }
+
+                // Elasticity Core Rule: Use accumulation tension of parity switching
+                resolvedContract = when {
+                    isMacroEven && localOdds > localEvens -> "DIGITODD" // Switching to Even with high Odds ratio snaps back to Odd
+                    !isMacroEven && localEvens > localOdds -> "DIGITEVEN" // Switching to Odd with high Evens ratio snaps back to Even
+                    isMacroEven -> "DIGITEVEN"
+                    else -> "DIGITODD"
                 }
+                resolvedBarrier = "N/A"
+                logMessage = "SPRING SYSTEM: Parity hunting activated. Macro Switching: ${if (isMacroEven) "EVEN" else "ODD"}. Local E-0 Ratio: $localEvens-$localOdds. Resolved: $resolvedContract"
             }
 
-            // ENGINE C: DIFFERS (Elasticity/Volatility Trap) -> Span > 4 (Secondary Engine Only)
-            calculatedSpan > 4 -> {
-                if (stabilityScoreS101 > 85.0f) {
-                    resolvedContract = "DIGITDIFF"
-                    resolvedBarrier = primaryAnchor.toString()
-                    logMessage = "EXECUTE: High-Conviction Sniper Differs Target Locked."
-                } 
-                else if (calculatedSpan == 8 && minDigit == 1 && maxDigit == 9) {
-                    // Special Elasticity Trap: Market volume locked in 1-9 range. 0 is dead.
-                    resolvedContract = "DIGITDIFF"
-                    resolvedBarrier = "0"
-                    logMessage = "EXECUTE: Extreme Elasticity Trap Active. Targeting Isolated 0."
-                } 
-                else {
-                    // Enforce structural secondary engine suppression: Block general wide-span differs
-                    isApproved = false
-                    resolvedContract = "NONE"
-                    resolvedBarrier = "-1"
-                    logMessage = "REJECTED: High Dispersion Chaos Trap. Suppressing low-conviction Differs."
-                }
+            else -> {
+                resolvedContract = "NONE"
+                resolvedBarrier = "-1"
+                isApproved = false
+                logMessage = "REJECTED: Unidentified territory boundaries for Anchor $primaryAnchor."
             }
         }
 
@@ -135,5 +161,19 @@ class QuantitativeContractCompiler {
             isFilterSequencePassed = isApproved,
             structuralDiagnosticLog = logMessage
         )
+    }
+
+    private fun performDigitDiffRedirect(
+        primaryAnchor: Int,
+        completeCandidates: List<Int>,
+        frequencies: IntArray
+    ): Pair<String, String> {
+        val excluded = (0..9).filter { it !in completeCandidates }
+        val chosenDiffDigit = excluded.maxByOrNull { digit ->
+            val distance = abs(digit - primaryAnchor)
+            // Pick based on maximum physical distance (magnet filter) and lower frequency
+            distance * 1000 + (100 - (frequencies.getOrNull(digit) ?: 0))
+        } ?: 0
+        return Pair("DIGITDIFF", chosenDiffDigit.toString())
     }
 }

@@ -66,6 +66,24 @@ class DerivWebSocketManager {
     private val _authorizedTraderName = MutableStateFlow<String?>(null)
     val authorizedTraderName: StateFlow<String?> = _authorizedTraderName.asStateFlow()
 
+    private val _authorizedEmail = MutableStateFlow<String?>(null)
+    val authorizedEmail: StateFlow<String?> = _authorizedEmail.asStateFlow()
+
+    private val _authorizedCountry = MutableStateFlow<String?>(null)
+    val authorizedCountry: StateFlow<String?> = _authorizedCountry.asStateFlow()
+
+    private val _authorizedCurrency = MutableStateFlow<String?>(null)
+    val authorizedCurrency: StateFlow<String?> = _authorizedCurrency.asStateFlow()
+
+    private val _authorizedUserId = MutableStateFlow<String?>(null)
+    val authorizedUserId: StateFlow<String?> = _authorizedUserId.asStateFlow()
+
+    private val _authorizedScopes = MutableStateFlow<List<String>>(emptyList())
+    val authorizedScopes: StateFlow<List<String>> = _authorizedScopes.asStateFlow()
+
+    private val _authErrorState = MutableStateFlow<String?>(null)
+    val authErrorState: StateFlow<String?> = _authErrorState.asStateFlow()
+
     private var pingSendTime = 0L
     private var pingRunnable: Runnable? = null
     
@@ -182,15 +200,42 @@ class DerivWebSocketManager {
             if (msgType == "ping") {
                 val rtt = System.currentTimeMillis() - pingSendTime
                 _pingState.value = rtt
+            } else if (json.has("error")) {
+                val errorObj = json.optJSONObject("error")
+                val errMsg = errorObj?.optString("message") ?: "Unknown API Error"
+                if (msgType == "authorize") {
+                    _connectionState.value = "AUTH_FAILED"
+                    _authErrorState.value = errMsg
+                    _authorizedBalance.value = null
+                    _authorizedScopes.value = emptyList()
+                }
             } else if (msgType == "authorize") {
                 val authObj = json.optJSONObject("authorize")
                 if (authObj != null) {
                     val balance = authObj.optDouble("balance")
                     val fullname = authObj.optString("fullname", "Deriv Trader")
+                    val email = authObj.optString("email", "deriv.trader@deriv.com")
+                    val country = authObj.optString("country", "US")
+                    val currency = authObj.optString("currency", "USD")
+                    val userId = authObj.optLong("user_id", 888123L).toString()
+                    
+                    val scopesArray = authObj.optJSONArray("scopes")
+                    val scopesList = mutableListOf<String>()
+                    if (scopesArray != null) {
+                        for (i in 0 until scopesArray.length()) {
+                            scopesList.add(scopesArray.optString(i))
+                        }
+                    }
                     if (!balance.isNaN()) {
                         _authorizedBalance.value = balance
                     }
                     _authorizedTraderName.value = fullname
+                    _authorizedEmail.value = email
+                    _authorizedCountry.value = country
+                    _authorizedCurrency.value = currency
+                    _authorizedUserId.value = userId
+                    _authorizedScopes.value = scopesList
+                    _authErrorState.value = null
                     _connectionState.value = "AUTHORIZED"
                 }
             } else if (msgType == "buy") {

@@ -326,6 +326,42 @@ class MainActivity : ComponentActivity() {
               }
             }
           }
+
+          val validationMessage by viewModel.tokenValidationMessage.collectAsState()
+          validationMessage?.let { msg ->
+            androidx.compose.ui.window.Dialog(
+              onDismissRequest = {}
+            ) {
+              Box(
+                modifier = Modifier
+                  .size(280.dp, 160.dp)
+                  .clip(RoundedCornerShape(16.dp))
+                  .background(Color(0xFF0F1015))
+                  .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                  .padding(20.dp),
+                contentAlignment = Alignment.Center
+              ) {
+                Column(
+                  verticalArrangement = Arrangement.spacedBy(16.dp),
+                  horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                  CircularProgressIndicator(
+                    color = MaterialTheme.colorScheme.primary,
+                    strokeWidth = 3.dp,
+                    modifier = Modifier.size(40.dp)
+                  )
+                  Text(
+                    text = msg,
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                  )
+                }
+              }
+            }
+          }
         }
       }
     }

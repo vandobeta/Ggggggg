@@ -34,10 +34,23 @@ This project is a high-frequency algorithmic derivatives indicator and automated
     *   *Parity Kill-Switch*: Active under Span 3-4 and Stability < 60% to safely abort pending parity orders.
     *   *Absolute Blacklist*: Span 9 triggers a hard lockout.
 
-### 7. Structured Setup Wizard & Security Disclaimers
-*   **4-Step Wizard**: Upgraded `FirstLaunchSetupScreen.kt` into a highly-directed 4-step wizard structure.
-*   **Deriv Secure Token Capture**: Designed a dedicated Token Integration step capturing keys with high-visibility, exclusive disclaimers highlighting local encrypted storage, self-custody details, minimum permission profiles (Read & Trade scopes), and volatility cautions.
-*   **Foolproof Startup Retention**: Reinforced onboarding state tracking with dual-layer storage (Room SQLite + SharedPreferences). Guarantees that completed setups permanently skip the setup screen on launch.
+### 7. Structured Setup Onboarding Plan & Profile prefill
+*   **Up-Front Token Verification**: Reworked first-launch wizard structure to request secure API token immediately in Step 1.
+*   **On-The-Fly Synchronization**: Subscribes to authorize callback pipelines to download profile name, live balance, country, currency, and email directly.
+*   **Foolproof Multi-Prefill**: Automatically populates Step 2 profile details with downloaded credentials, enabling seamless custom updates.
+
+### 8. Auto-Best Volatility Index Optimizer
+*   **Continuously Scanned Index Pipeline**: Scans all volatility indices in the background.
+*   **Scored Rankings**: Ranks markets dynamically using strategic scoring ($E = 0.3M + 0.5V + 0.2A$).
+*   **Zero-Overhead Hot-Swaps**: Automatically switches Selected Symbol pointer to index with highest edge potential score on every tick update.
+
+### 9. Fully-Featured MANUAL TRADER Tab with Algorithmic Visualizers
+*   **Segmented Multi-Tab UI**: Successfully integrated the new "MANUAL" trader sub-tab among active tabs, providing dedicated view separation.
+*   **Dynamic Digit Percentage Cycles**: Embedded a beautiful 10-digit circular indicator grid rendering real-time percentage frequencies dynamically calculated from live historical volatility ticks.
+*   **Dual Trading Orchestrator**:
+    *   *AI Co-Pilot Mode*: Ingests raw websocket signals, locks safety buffer bounds, and formats stakes for instant execution with a single intuitive "Execute Preset" trigger.
+    *   *Custom Execution Mode*: Empowers independent traders with manual asset selector keys, custom contract category models (UNDER, OVER, DIFFERS, EVEN, ODD), custom barrier offsets, and dynamic payout estimative stats.
 
 ## Future Plans & Milestones
-*   Real-time WebSocket connection listener optimizations and raw tick throughput enhancements.
+*   Exclusively monitor real-time websocket heartbeat streams to guarantee high-uptime session state retention.
+

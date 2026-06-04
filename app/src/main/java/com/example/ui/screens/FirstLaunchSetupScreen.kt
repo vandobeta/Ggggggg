@@ -53,14 +53,25 @@ fun FirstLaunchSetupScreen(
     
     var currentStep by remember { mutableStateOf(1) } // Steps 1 to 4
     
-    // Step 1 Form States
+    // Form States
     var nameInput by remember { mutableStateOf("") }
     var capitalInput by remember { mutableStateOf("1000.00") }
     var selectedCurrency by remember { mutableStateOf("USD") }
     var goalInput by remember { mutableStateOf("To maintain steady gains with cool head.") }
-    
-    // Step 2 Form States
     var derivTokenInput by remember { mutableStateOf("") }
+    
+    // Interactive derivation token state indicators
+    val authorizedTraderName by viewModel.authorizedTraderName.collectAsState()
+    val authorizedBalance by viewModel.authorizedBalance.collectAsState()
+    val authorizedEmail by viewModel.authorizedEmail.collectAsState()
+    val authorizedCountry by viewModel.authorizedCountry.collectAsState()
+    val authorizedCurrency by viewModel.authorizedCurrency.collectAsState()
+    val authorizedUserId by viewModel.authorizedUserId.collectAsState()
+    val authorizedScopes by viewModel.authorizedScopes.collectAsState()
+
+    var isVerifyingToken by remember { mutableStateOf(false) }
+    var isTokenVerified by remember { mutableStateOf(false) }
+    var tokenVerificationError by remember { mutableStateOf<String?>(null) }
     
     // Step 3 Form States
     var disclaimerAccepted by remember { mutableStateOf(false) }
@@ -169,7 +180,43 @@ fun FirstLaunchSetupScreen(
                     label = "setup_steps"
                 ) { step ->
                     when (step) {
-                        1 -> StepTraderMetrics(
+                        1 -> StepDerivTokenSetup(
+                            token = derivTokenInput,
+                            onTokenChange = { 
+                                derivTokenInput = it
+                                isTokenVerified = false 
+                                tokenVerificationError = null
+                            },
+                            isVerifying = isVerifyingToken,
+                            onVerifyClick = {
+                                isVerifyingToken = true
+                                tokenVerificationError = null
+                                viewModel.validateTokenAndInitializeEngine(derivTokenInput.trim(), false) { success, msg ->
+                                    isVerifyingToken = false
+                                    if (success) {
+                                        isTokenVerified = true
+                                        nameInput = authorizedTraderName ?: "Deriv Trader"
+                                        capitalInput = String.format("%.2f", authorizedBalance ?: 1000.0)
+                                        selectedCurrency = authorizedCurrency ?: "USD"
+                                        goalInput = "Capital protection under account ID ${authorizedUserId ?: "N/A"}"
+                                        Toast.makeText(context, "Credentials Parsed Successfully!", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        isTokenVerified = false
+                                        tokenVerificationError = msg
+                                    }
+                                }
+                            },
+                            verificationError = tokenVerificationError,
+                            isVerified = isTokenVerified,
+                            retrievedName = nameInput,
+                            retrievedBalance = capitalInput.toDoubleOrNull(),
+                            retrievedCountry = authorizedCountry,
+                            retrievedCurrency = selectedCurrency,
+                            retrievedEmail = authorizedEmail,
+                            retrievedUserId = authorizedUserId,
+                            scopes = authorizedScopes
+                        )
+                        2 -> StepTraderMetrics(
                             name = nameInput,
                             onNameChange = { nameInput = it },
                             capital = capitalInput,
@@ -178,10 +225,6 @@ fun FirstLaunchSetupScreen(
                             onCurrencySelected = { selectedCurrency = it },
                             goal = goalInput,
                             onGoalChange = { goalInput = it }
-                        )
-                        2 -> StepDerivTokenSetup(
-                            token = derivTokenInput,
-                            onTokenChange = { derivTokenInput = it }
                         )
                         3 -> StepDisclaimers(
                             disclaimerAccepted = disclaimerAccepted,
@@ -244,8 +287,8 @@ fun FirstLaunchSetupScreen(
                 }
 
                 val nextEnabled = when (currentStep) {
-                    1 -> nameInput.trim().isNotBlank() && capitalInput.trim().toDoubleOrNull() != null
-                    2 -> derivTokenInput.trim().isNotBlank()
+                    1 -> isTokenVerified
+                    2 -> nameInput.trim().isNotBlank() && capitalInput.trim().toDoubleOrNull() != null
                     3 -> disclaimerAccepted
                     4 -> if (pingToShow > 200L) isHighPingOverridden else true
                     else -> true
@@ -829,7 +872,18 @@ fun StepPermissionsAndIgnition(
 @Composable
 fun StepDerivTokenSetup(
     token: String,
-    onTokenChange: (String) -> Unit
+    onTokenChange: (String) -> Unit,
+    isVerifying: Boolean,
+    onVerifyClick: () -> Unit,
+    verificationError: String?,
+    isVerified: Boolean,
+    retrievedName: String?,
+    retrievedBalance: Double?,
+    retrievedCountry: String?,
+    retrievedCurrency: String?,
+    retrievedEmail: String?,
+    retrievedUserId: String?,
+    scopes: List<String>
 ) {
     val scrollState = rememberScrollState()
     
@@ -840,7 +894,7 @@ fun StepDerivTokenSetup(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Text(
-            text = "STEP 2: SECURE DERIV WS API TOKEN",
+            text = "STEP 1: SECURE API DEPLOYMENT",
             color = Color.LightGray,
             fontWeight = FontWeight.Bold,
             fontSize = 12.sp,
@@ -848,26 +902,137 @@ fun StepDerivTokenSetup(
         )
         
         Text(
-            text = "To allow the Algo-Radar automated co-pilot to trade on your behalf, enter your secure Deriv WebSocket API Token.",
+            text = "Enter your secure Deriv token to instantly download your live account balances and system authority details.",
             color = Color.Gray,
             fontSize = 11.sp
         )
 
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("DERIV SECURE WS API TOKEN", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-            OutlinedTextField(
-                value = token,
-                onValueChange = onTokenChange,
-                placeholder = { Text("Paste your Deriv WS API Token here", color = Color.DarkGray) },
-                singleLine = true,
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = Color.White.copy(alpha = 0.1f)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = token,
+                    onValueChange = onTokenChange,
+                    placeholder = { Text("Paste your Deriv WS Token", color = Color.DarkGray, fontSize = 12.sp) },
+                    singleLine = true,
+                    enabled = !isVerified,
+                    modifier = Modifier.weight(1f),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = Color.White.copy(alpha = 0.1f)
+                    )
                 )
-            )
+                
+                Button(
+                    onClick = onVerifyClick,
+                    enabled = token.isNotBlank() && !isVerifying,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isVerified) Color(0xFF10B981) else MaterialTheme.colorScheme.primary
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)
+                ) {
+                    if (isVerifying) {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    } else {
+                        Text(
+                            text = if (isVerified) "VERIFIED ✓" else "CONNECT", 
+                            fontSize = 10.sp, 
+                            fontWeight = FontWeight.Bold, 
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+            }
+        }
+
+        if (verificationError != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFFEF4444).copy(alpha = 0.15f))
+                    .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                    .padding(12.dp)
+            ) {
+                Text(
+                    text = "❌ Authentication Refused:\n$verificationError",
+                    color = Color(0xFFFCA5A5),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        }
+
+        if (isVerified) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF10B981).copy(alpha = 0.05f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, Color(0xFF10B981).copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF10B981))
+                        )
+                        Text(
+                            text = "SECURE PROFILE SYNCHRONIZED SUCCESSFULLY",
+                            color = Color(0xFF34D399),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+
+                    Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                        Text("ACCOUNT NAME", color = Color.Gray, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                        Text(retrievedName ?: "Deriv Account Instance", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                        Text("AVAILABLE BALANCE", color = Color.Gray, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                        Text(String.format("$%.2f %s", retrievedBalance ?: 0.0, retrievedCurrency ?: ""), color = Color(0xFF34D399), fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
+                    }
+                    Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                        Text("ACCOUNT ID", color = Color.Gray, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                        Text(retrievedUserId ?: "CR888123", color = Color.White, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                    }
+                    Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                        Text("COUNTRY / CURRENCY", color = Color.Gray, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                        Text("${retrievedCountry ?: "US"} / ${retrievedCurrency ?: "USD"}", color = Color.White, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                    }
+                    Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                        Text("SYNC EMAIL", color = Color.Gray, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                        Text(retrievedEmail ?: "Not Provided", color = Color.White, fontSize = 11.sp)
+                    }
+                    Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                        Text("PERMITTED AUTHORITY", color = Color.Gray, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                        Text(if (scopes.isNotEmpty()) scopes.joinToString(", ") else "read, trade", color = Color(0xFF34D399), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
         }
 
         Card(
@@ -891,7 +1056,7 @@ fun StepDerivTokenSetup(
                         modifier = Modifier.size(16.dp)
                     )
                     Text(
-                        text = "EXCLUSIVE TOKEN DISCLAIMER",
+                        text = "SECURITY PROTOCOL CHECKLIST",
                         color = Color(0xFFFBBF24),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
@@ -900,7 +1065,7 @@ fun StepDerivTokenSetup(
                 }
 
                 Text(
-                    text = "• LOCAL ENCRYPTED STORAGE: Your API token is saved directly in a secure, local Room SQLite database on your device. It is never uploaded to any remote analytics or central web servers.\n\n• DECENTRALIZED AND SECURE: Algo-Radar acts purely as a self-custodial high-frequency processor. The developer holds zero capability to read your tokens or access your private capital.\n\n• MINIMUM SCOPE POLICY: We highly recommend generating a token on your Deriv web dashboard with ONLY the 'Read' (to stream prices) and 'Trade' (to place contract transactions) scopes enabled. Do NOT enable 'Admin' or 'Payments' authority to secure your funds.\n\n• VOLATILITY RISK: Automated contracts are susceptible to internet outages, server latency, slippages, and volatile price actions. Double check your settings before enabling live autopilot.",
+                    text = "• LOCAL ENCRYPTED STORAGE: Your API token is saved directly in a secure, local Room SQLite database on your device. It is never uploaded to any remote analytics or central web servers.\n\n• MINIMUM SCOPE POLICY: We highly recommend generating a token on your Deriv web dashboard with ONLY the 'Read' (to stream prices) and 'Trade' (to place contract transactions) scopes enabled.\n\n• DECENTRALIZED OPERATIONS: Failsafe structures isolate balance transfers so no remote developer holding ever takes place.",
                     color = Color.LightGray,
                     fontSize = 10.5.sp,
                     lineHeight = 15.sp

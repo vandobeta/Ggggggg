@@ -216,6 +216,12 @@ class HighFrequencyTickProcessor {
 
         val barrierParam = strategyResult.chosenBarrierParameter
 
+        // Logging exactly to the millisecond
+        android.util.Log.d(
+            "HighFrequencyStrategyLogger",
+            "[${System.currentTimeMillis()}] TUPLE: $normalizedCandidates | CALCULATED SPAN: ${strategyResult.activeSpan} | STRATEGY VERDICT: $mappedContractType | BARRIER PARAM: $barrierParam"
+        )
+
         val payoutVal = when (mappedContractType) {
             "UNDER" -> getUnderPayoutFor(barrierParam.toIntOrNull() ?: -1)
             "OVER" -> getOverPayoutFor(barrierParam.toIntOrNull() ?: -1)

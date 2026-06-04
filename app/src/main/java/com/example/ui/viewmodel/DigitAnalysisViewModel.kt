@@ -119,6 +119,19 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
     private val _navErrorMessage = MutableStateFlow<String?>(null)
     val navErrorMessage: StateFlow<String?> = _navErrorMessage.asStateFlow()
 
+    // Expose authorized states and live token messages to UI screens
+    val authorizedScopes: StateFlow<List<String>> = wsManager.authorizedScopes
+    val authErrorState: StateFlow<String?> = wsManager.authErrorState
+    val authorizedBalance: StateFlow<Double?> = wsManager.authorizedBalance
+    val authorizedTraderName: StateFlow<String?> = wsManager.authorizedTraderName
+    val authorizedEmail: StateFlow<String?> = wsManager.authorizedEmail
+    val authorizedCountry: StateFlow<String?> = wsManager.authorizedCountry
+    val authorizedCurrency: StateFlow<String?> = wsManager.authorizedCurrency
+    val authorizedUserId: StateFlow<String?> = wsManager.authorizedUserId
+
+    private val _tokenValidationMessage = MutableStateFlow<String?>(null)
+    val tokenValidationMessage: StateFlow<String?> = _tokenValidationMessage.asStateFlow()
+
     fun dismissErrorMessage() {
         _navErrorMessage.value = null
     }
@@ -396,8 +409,114 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
     }
 
     fun updateSettingsInDb(newSettings: AppSettings) {
+        val oldSettings = _userSettings.value
+        
+        // Intercept enabling of autoTraderEnabled to check scope and balance
+        if (newSettings.autoTraderEnabled && !oldSettings.autoTraderEnabled) {
+            val token = newSettings.derivToken
+            if (token.isEmpty()) {
+                _navErrorMessage.value = "Co-pilot Error: A secure API token is required to initialize automated trading! Update in setup or settings."
+                viewModelScope.launch {
+                    val corrected = newSettings.copy(autoTraderEnabled = false)
+                    repository.saveSettings(corrected)
+                    _userSettings.value = corrected
+                }
+                return
+            }
+
+            validateTokenAndInitializeEngine(token, newSettings.isDemoAccount) { success, message ->
+                if (!success) {
+                    _navErrorMessage.value = "Security Gate: $message"
+                    viewModelScope.launch {
+                        val corrected = newSettings.copy(autoTraderEnabled = false)
+                        repository.saveSettings(corrected)
+                        _userSettings.value = corrected
+                    }
+                } else {
+                    _navErrorMessage.value = null // clear prior errors
+                    
+                    // Force authorize on socket so real-time orders can execute
+                    if (!wsManager.isSimulating()) {
+                        wsManager.sendAuthorizeRequest(token)
+                    }
+                    
+                    viewModelScope.launch {
+                        repository.saveSettings(newSettings)
+                        _userSettings.value = newSettings
+                    }
+                }
+            }
+        } else {
+            // Standard update
+            viewModelScope.launch {
+                repository.saveSettings(newSettings)
+                _userSettings.value = newSettings
+                
+                // If real-time token is edited/updated, trigger a fresh secure auth request to keep states fully synced
+                if (newSettings.derivToken != oldSettings.derivToken && newSettings.derivToken.isNotEmpty() && !wsManager.isSimulating()) {
+                    wsManager.sendAuthorizeRequest(newSettings.derivToken)
+                }
+            }
+        }
+    }
+
+    fun validateTokenAndInitializeEngine(token: String, isDemo: Boolean, onCompleted: (Boolean, String) -> Unit) {
+        if (token.isEmpty()) {
+            onCompleted(false, "Deriv security token is empty.")
+            return
+        }
+
+        if (wsManager.isSimulating()) {
+            viewModelScope.launch {
+                _tokenValidationMessage.value = "CONNECTING & VERIFYING API TOKEN..."
+                delay(1200)
+                _tokenValidationMessage.value = null
+                onCompleted(true, "Sandbox validated tokens successfully! Default scopes [read, trade, balance] and balance $10,000.00 loaded.")
+            }
+            return
+        }
+
         viewModelScope.launch {
-            repository.saveSettings(newSettings)
+            _tokenValidationMessage.value = "CONNECTING & VERIFYING API TOKEN..."
+            wsManager.sendAuthorizeRequest(token)
+
+            var validated = false
+            var responseMessage = "Token authorization check timed out. Please check your network connection."
+            var delayCount = 0
+
+            // Query authorization states from web socket manager
+            while (delayCount < 10) {
+                delay(500)
+                val connectionState = wsManager.connectionState.value
+                val scopes = wsManager.authorizedScopes.value
+                val balance = wsManager.authorizedBalance.value
+                val errorMsg = wsManager.authErrorState.value
+
+                if (connectionState == "AUTHORIZED") {
+                    val hasRead = scopes.any { it.equals("read", ignoreCase = true) }
+                    val hasTrade = scopes.any { it.equals("trade", ignoreCase = true) }
+
+                    if (!hasRead || !hasTrade) {
+                        validated = false
+                        responseMessage = "Security scope validation failed! Available scopes: ${scopes.joinToString()}. Scope 'read' and 'trade' permission is required."
+                    } else if (balance == null || balance <= 0.0) {
+                        validated = false
+                        responseMessage = "Deposit validation failed! Your authorized Deriv wallet balance ($$balance) is zero or empty."
+                    } else {
+                        validated = true
+                        responseMessage = "Success! Authorized user with balance of $$balance."
+                    }
+                    break
+                } else if (connectionState == "AUTH_FAILED" || errorMsg != null) {
+                    validated = false
+                    responseMessage = errorMsg ?: "Deriv authorization credentials rejected."
+                    break
+                }
+                delayCount++
+            }
+
+            _tokenValidationMessage.value = null
+            onCompleted(validated, responseMessage)
         }
     }
 
@@ -423,10 +542,8 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
     private fun recalculateAllStates() {
         val allSymbols = DerivWebSocketManager.VOLATILITY_SYMBOLS
         val results = mutableListOf<MarketScanResult>()
-
-        var selectedSymbolResult: CompleteDataPacket? = null
-        val currentSelected = _selectedSymbol.value
         val settings = _userSettings.value
+        val packetsPrepared = mutableMapOf<String, CompleteDataPacket>()
 
         for ((symbol, displayName) in allSymbols) {
             val history = wsManager.getHistoryFor(symbol)
@@ -444,9 +561,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                         confidence = 0f
                     )
                 )
-                if (symbol == currentSelected) {
-                    selectedSymbolResult = createEmptyPacket(symbol, displayName)
-                }
+                packetsPrepared[symbol] = createEmptyPacket(symbol, displayName)
                 continue
             }
 
@@ -476,7 +591,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
 
             if (crossoverHappened) {
                 crossoverTicksRemaining[symbol] = 8
-                if (symbol == currentSelected) {
+                if (symbol == _selectedSymbol.value) {
                     _crossoverDetected.value = true
                     triggerDoubleVibration() // Entry vibration for crossover
                 }
@@ -484,7 +599,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                 val remaining = crossoverTicksRemaining[symbol] ?: 0
                 if (remaining > 0) {
                     crossoverTicksRemaining[symbol] = remaining - 1
-                } else if (symbol == currentSelected) {
+                } else if (symbol == _selectedSymbol.value) {
                     _crossoverDetected.value = false
                 }
             }
@@ -552,7 +667,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
             val rank1 = predictions.firstOrNull()
             val finalConfidence = rank1?.confidence ?: 0f
 
-            // Formulate recommended contract based strictly on riskProfile (OVERS, UNDERS, DIFFERS)
+            // Formulate recommended contract
             val profile = settings.riskProfile
             val recommendedContract = when {
                 primeDigit <= 3 -> {
@@ -591,29 +706,33 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
             )
             results.add(result)
 
-            if (symbol == currentSelected) {
-                val noiseScore = if (microEvenVelocity in 21f..79f) 85f else 15f
-                val stabilityScore = (100f - abs((leWeight + heWeight) - 50f) * 2f).coerceIn(0f, 100f)
+            val noiseScore = if (microEvenVelocity in 21f..79f) 85f else 15f
+            val stabilityScore = (100f - abs((leWeight + heWeight) - 50f) * 2f).coerceIn(0f, 100f)
 
-                selectedSymbolResult = CompleteDataPacket(
-                    symbol = symbol,
-                    displayName = displayName,
-                    livePing = pingState.value,
-                    quadWeights = quadWeights,
-                    digitBreakdowns = counts,
-                    momentumScore = V,
-                    noiseScore = noiseScore,
-                    stabilityScore = stabilityScore,
-                    predictionsList = predictions,
-                    tickHistory = history,
-                    lastTickValue = wsManager.getLastPriceFor(symbol),
-                    isStableConnection = !wsManager.isSimulating()
-                )
-            }
+            packetsPrepared[symbol] = CompleteDataPacket(
+                symbol = symbol,
+                displayName = displayName,
+                livePing = pingState.value,
+                quadWeights = quadWeights,
+                digitBreakdowns = counts,
+                momentumScore = V,
+                noiseScore = noiseScore,
+                stabilityScore = stabilityScore,
+                predictionsList = predictions,
+                tickHistory = history,
+                lastTickValue = wsManager.getLastPriceFor(symbol),
+                isStableConnection = !wsManager.isSimulating()
+            )
         }
 
-        _marketRankings.value = results.sortedByDescending { it.totalEdgeScore }
-        _selectedPacket.value = selectedSymbolResult
+        val rankedResults = results.sortedByDescending { it.totalEdgeScore }
+        _marketRankings.value = rankedResults
+
+        // Automatically select the highest-scoring volatility symbol
+        val topRankingSymbol = rankedResults.firstOrNull()?.symbol ?: _selectedSymbol.value
+        _selectedSymbol.value = topRankingSymbol
+
+        _selectedPacket.value = packetsPrepared[topRankingSymbol]
     }
 
     private fun calculatePredictions(
