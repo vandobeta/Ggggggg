@@ -470,7 +470,7 @@ fun SignalsScreen(
                                 .padding(6.dp)
                         ) {
                             Text(
-                                text = "⚠️ NO DERIV TOKEN: Simulator execution fallback active.",
+                                text = "⚠️ NO DERIV TOKEN: Connect API token in Settings to trade with real money.",
                                 color = Color(0xFFFDE047),
                                 fontSize = 8.5.sp,
                                 fontWeight = FontWeight.SemiBold,
