@@ -30,10 +30,16 @@ This document outlines structural goals, real accomplishments, and pending direc
   5. Decoded history outputs (Wins, Losses, Exits, Profits)
 - Embed full-screen system flags at activity launch.
 
+### ✅ Milestone 5: Dual Demo/Real Auto-Configurations & Token Auto-Detection
+- Read the official `is_virtual` attribute from successful `authorize` WebSocket payloads to auto-detect the token's real account type.
+- Automatically configure and transition the application's global state (`isDemoAccount`) to match the authorized token type rather than erroring out due to toggle mismatch.
+- Support real-time synchronization between the authorized socket account mode and local persistence databases seamlessly.
+
 ---
 
 ## ❓ Follow-up Verification Questions
 *To keep implementation strictly aligned with expectations without any assumptions:*
-1. Do you need a dedicated webhook receiver or background alert system when the application is completely minimized, or is the dual-mode Picture-in-Picture logic and the active dashboard sufficient?
-2. Should the historical outcomes filter by specific underlying assets (e.g., Volatility 10 Index only) or is the global chronological list of completes preferred?
-3. What is the preferred minimum threshold latency warning value? (Our default is set to color-code yellow above `150ms` and green below it).   
+1. Under the new auto-detect token flow, would you like a specific visual toast or warning modal to inform the user if their token changed the app's mode (e.g., "Note: Switched to Real Account Mode based on token")?
+2. Do you need a dedicated webhook receiver or background alert system when the application is completely minimized, or is the dual-mode Picture-in-Picture logic and the active dashboard sufficient?
+3. Should the historical outcomes filter by specific underlying assets (e.g., Volatility 10 Index only) or is the global chronological list of completes preferred?
+4. What is the preferred minimum threshold latency warning value? (Our default is set to color-code yellow above `150ms` and green below it).

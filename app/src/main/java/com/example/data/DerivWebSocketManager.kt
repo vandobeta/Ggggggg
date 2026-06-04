@@ -78,6 +78,9 @@ class DerivWebSocketManager {
     private val _authorizedUserId = MutableStateFlow<String?>(null)
     val authorizedUserId: StateFlow<String?> = _authorizedUserId.asStateFlow()
 
+    private val _authorizedIsVirtual = MutableStateFlow<Boolean?>(null)
+    val authorizedIsVirtual: StateFlow<Boolean?> = _authorizedIsVirtual.asStateFlow()
+
     private val _authorizedScopes = MutableStateFlow<List<String>>(emptyList())
     val authorizedScopes: StateFlow<List<String>> = _authorizedScopes.asStateFlow()
 
@@ -243,6 +246,7 @@ class DerivWebSocketManager {
                     _connectionState.value = "AUTH_FAILED"
                     _authErrorState.value = errMsg
                     _authorizedBalance.value = null
+                    _authorizedIsVirtual.value = null
                     _authorizedScopes.value = emptyList()
                 }
             } else if (msgType == "authorize") {
@@ -254,6 +258,7 @@ class DerivWebSocketManager {
                     val country = authObj.optString("country", "US")
                     val currency = authObj.optString("currency", "USD")
                     val userId = authObj.optLong("user_id", 888123L).toString()
+                    val isVirtual = authObj.optInt("is_virtual", 0) == 1 || authObj.optBoolean("is_virtual", false)
                     
                     val scopesArray = authObj.optJSONArray("scopes")
                     val scopesList = mutableListOf<String>()
@@ -270,11 +275,12 @@ class DerivWebSocketManager {
                     _authorizedCountry.value = country
                     _authorizedCurrency.value = currency
                     _authorizedUserId.value = userId
+                    _authorizedIsVirtual.value = isVirtual
                     _authorizedScopes.value = scopesList
                     _authErrorState.value = null
                     _connectionState.value = "AUTHORIZED"
                     
-                    addLog("Authorized context: $fullname ($email) | Balance: $$balance $currency | Scopes: $scopesList", "INBOUND")
+                    addLog("Authorized context: $fullname ($email) | Virtual/Demo: $isVirtual | Balance: $$balance $currency | Scopes: $scopesList", "INBOUND")
                 }
             } else if (msgType == "buy") {
                 val buyObj = json.optJSONObject("buy")

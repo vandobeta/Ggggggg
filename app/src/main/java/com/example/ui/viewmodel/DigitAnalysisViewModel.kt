@@ -243,6 +243,23 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
             }
         }
 
+        // Sync validated isDemoAccount mode from secure WebSocket directly to local DB
+        viewModelScope.launch {
+            wsManager.authorizedIsVirtual.collect { isVirtual ->
+                if (isVirtual != null) {
+                    val current = _userSettings.value
+                    if (current.isDemoAccount != isVirtual) {
+                        val updated = current.copy(
+                            isDemoAccount = isVirtual,
+                            derivWalletBalance = if (isVirtual) current.demoWalletBalance else current.realWalletBalance
+                        )
+                        repository.saveSettings(updated)
+                        _userSettings.value = updated
+                    }
+                }
+            }
+        }
+
         // Sync validated trader name from secure WebSocket directly to local DB
         viewModelScope.launch {
             wsManager.authorizedTraderName.collect { name ->
@@ -474,8 +491,15 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                     wsManager.sendAuthorizeRequest(token)
                     
                     viewModelScope.launch {
-                        repository.saveSettings(newSettings)
-                        _userSettings.value = newSettings
+                        val currentDetected = _userSettings.value
+                        val mergedSettings = newSettings.copy(
+                            isDemoAccount = currentDetected.isDemoAccount,
+                            demoWalletBalance = currentDetected.demoWalletBalance,
+                            realWalletBalance = currentDetected.realWalletBalance,
+                            derivWalletBalance = currentDetected.derivWalletBalance
+                        )
+                        repository.saveSettings(mergedSettings)
+                        _userSettings.value = mergedSettings
                     }
                 }
             }
@@ -494,14 +518,34 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
     }
 
     fun validateTokenAndInitializeEngine(token: String, isDemo: Boolean, onCompleted: (Boolean, String) -> Unit) {
-        if (token.isEmpty()) {
+        val cleanToken = token.replace("\n", "").replace("\r", "").replace(" ", "").trim()
+        if (cleanToken.isEmpty()) {
             onCompleted(false, "Deriv security token is empty.")
             return
         }
 
+        if (cleanToken.startsWith("pat_", ignoreCase = true)) {
+            if (cleanToken.length == 34) {
+                onCompleted(
+                    false,
+                    "API Error: Truncation detected! Your token has exactly 34 characters.\n\n" +
+                    "It looks like you copied only the FIRST line from the wrapped text on your mobile web browser. Deriv Personal Access Tokens are 68 characters long (including the 'pat_' prefix).\n\n" +
+                    "Please return to the Deriv dashboard, click 'Copy to clipboard' directly, or drag selection handles to copy both lines!"
+                )
+                return
+            } else if (cleanToken.length != 68) {
+                onCompleted(
+                    false,
+                    "API Error: Invalid token length (${cleanToken.length} characters).\n\n" +
+                    "Deriv Personal Access Tokens starting with 'pat_' must be exactly 68 characters long. Please check your token and try pasting again."
+                )
+                return
+            }
+        }
+
         viewModelScope.launch {
             _tokenValidationMessage.value = "CONNECTING & VERIFYING API TOKEN..."
-            wsManager.sendAuthorizeRequest(token)
+            wsManager.sendAuthorizeRequest(cleanToken)
 
             var validated = false
             var responseMessage = "Token authorization check timed out. Please check your network connection."
@@ -527,7 +571,25 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                         responseMessage = "Deposit validation failed! Your authorized Deriv wallet balance ($balance) is empty."
                     } else {
                         validated = true
-                        responseMessage = "Success! Authorized user with balance of $$balance."
+                        val isVirtual = wsManager.authorizedIsVirtual.value ?: false
+                        val accountTypeString = if (isVirtual) "Demo (Virtual)" else "Real"
+                        responseMessage = "Success! Authorized $accountTypeString Account with balance of $$balance."
+                        
+                        // Dynamically update user settings to match the verified token type (Demo or Real)
+                        try {
+                            val current = _userSettings.value
+                            val updated = current.copy(
+                                derivToken = cleanToken,
+                                isDemoAccount = isVirtual,
+                                demoWalletBalance = if (isVirtual) balance else current.demoWalletBalance,
+                                realWalletBalance = if (!isVirtual) balance else current.realWalletBalance,
+                                derivWalletBalance = balance
+                            )
+                            repository.saveSettings(updated)
+                            _userSettings.value = updated
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
                     }
                     break
                 } else if (connectionState == "AUTH_FAILED" || errorMsg != null) {
