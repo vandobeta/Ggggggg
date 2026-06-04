@@ -47,6 +47,7 @@ fun FirstLaunchSetupScreen(
     val context = LocalContext.current
     val userSettings by viewModel.userSettings.collectAsState()
     val realPing by viewModel.pingState.collectAsState()
+    val liveLogs by viewModel.liveLogs.collectAsState()
     var isSimulatingHighPing by remember { mutableStateOf(false) }
     var isHighPingOverridden by remember { mutableStateOf(false) }
     val pingToShow = if (isSimulatingHighPing) 324L else realPing
@@ -214,7 +215,8 @@ fun FirstLaunchSetupScreen(
                             retrievedCurrency = selectedCurrency,
                             retrievedEmail = authorizedEmail,
                             retrievedUserId = authorizedUserId,
-                            scopes = authorizedScopes
+                            scopes = authorizedScopes,
+                            liveLogs = liveLogs
                         )
                         2 -> StepTraderMetrics(
                             name = nameInput,
@@ -883,7 +885,8 @@ fun StepDerivTokenSetup(
     retrievedCurrency: String?,
     retrievedEmail: String?,
     retrievedUserId: String?,
-    scopes: List<String>
+    scopes: List<String>,
+    liveLogs: List<com.example.data.DerivWebSocketManager.WsLog>
 ) {
     val scrollState = rememberScrollState()
     
@@ -951,6 +954,65 @@ fun StepDerivTokenSetup(
                             fontWeight = FontWeight.Bold, 
                             fontFamily = FontFamily.Monospace
                         )
+                    }
+                }
+            }
+        }
+
+        // Live system monitoring logs terminal panel
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = "SECURE WSS REALTIME MONITOR",
+                color = Color.LightGray,
+                fontWeight = FontWeight.Bold,
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.Black)
+                    .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                    .padding(8.dp)
+            ) {
+                val logScrollState = rememberScrollState()
+                LaunchedEffect(liveLogs.size) {
+                    if (liveLogs.isNotEmpty()) {
+                        logScrollState.animateScrollTo(logScrollState.maxValue)
+                    }
+                }
+                Column(
+                    modifier = Modifier
+                        .verticalScroll(logScrollState)
+                        .fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (liveLogs.isEmpty()) {
+                        Text(
+                            text = "AWAITING SECURE LINK COMMAND [CONNECT]...\nReady to route direct Deriv API traffic on your device.",
+                            color = Color.Gray,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    } else {
+                        liveLogs.forEach { log ->
+                            val color = when (log.type) {
+                                "ERROR" -> Color(0xFFF87171)
+                                "OUTBOUND" -> Color(0xFF60A5FA)
+                                "INBOUND" -> Color(0xFF34D399)
+                                "INFO" -> Color(0xFFFBBF24)
+                                else -> Color(0xFF9CA3AF)
+                            }
+                            Text(
+                                text = "[${log.type}] ${log.message}",
+                                color = color,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                lineHeight = 13.sp
+                            )
+                        }
                     }
                 }
             }

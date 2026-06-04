@@ -522,9 +522,9 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                     if (!hasRead || !hasTrade) {
                         validated = false
                         responseMessage = "Security scope validation failed! Available scopes: ${scopes.joinToString()}. Scope 'read' and 'trade' permission is required."
-                    } else if (balance == null || balance <= 0.0) {
+                    } else if (balance == null || balance < 0.0) {
                         validated = false
-                        responseMessage = "Deposit validation failed! Your authorized Deriv wallet balance ($$balance) is zero or empty."
+                        responseMessage = "Deposit validation failed! Your authorized Deriv wallet balance ($balance) is empty."
                     } else {
                         validated = true
                         responseMessage = "Success! Authorized user with balance of $$balance."

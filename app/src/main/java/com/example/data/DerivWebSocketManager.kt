@@ -120,6 +120,7 @@ class DerivWebSocketManager {
 
     private var pingSendTime = 0L
     private var pingRunnable: Runnable? = null
+    private var pendingAuthorizeToken: String? = null
 
     init {
         // Initialize history lists
@@ -149,6 +150,12 @@ class DerivWebSocketManager {
                 subscribeToAllStreams(webSocket)
                 addLog("Subscribed to Volatility Streams: ${VOLATILITY_SYMBOLS.map { it.first }.joinToString()}", "INFO")
                 
+                // Trigger sending authorization if we have a pending token
+                pendingAuthorizeToken?.let { token ->
+                    addLog("De-queuing pending authorize request...", "INFO")
+                    sendAuthorizeRequest(token)
+                }
+
                 // Start ping loop
                 startPingLoop()
             }
@@ -418,9 +425,12 @@ class DerivWebSocketManager {
     }
 
     fun sendAuthorizeRequest(token: String) {
-        addLog("Sending Authorization request token: ${if (token.length > 5) token.take(5) + "..." else token}", "OUTBOUND")
+        pendingAuthorizeToken = token
+        _authErrorState.value = null
         val ws = webSocket
-        if (ws != null) {
+        val connection = _connectionState.value
+        addLog("Sending Authorization request token: ${if (token.length > 5) token.take(5) + "..." else token}", "OUTBOUND")
+        if (ws != null && (connection == "CONNECTED" || connection == "AUTHORIZED")) {
             try {
                 val json = JSONObject().apply {
                     put("authorize", token)
@@ -430,6 +440,9 @@ class DerivWebSocketManager {
                 Log.e(TAG, "Error sending authorize request: ${e.message}")
                 addLog("Error transmitting authorizing packet: ${e.message}", "ERROR")
             }
+        } else {
+            addLog("WebSocket disconnected or connecting. Queueing authorize request and establishing link...", "INFO")
+            connect()
         }
     }
 
