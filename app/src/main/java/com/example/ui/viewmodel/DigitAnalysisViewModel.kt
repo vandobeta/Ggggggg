@@ -221,6 +221,32 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
     }
 
     init {
+        // Enforce strict cache management on app start/crash cleanup: wipe stale ticks
+        viewModelScope.launch {
+            try {
+                android.util.Log.d("DigitAnalysisViewModel", "App open/crash recovery: clearing all stale tick occurrences from SQLite...")
+                db.tickOccurrenceDao().clearTicks()
+                wsManager.clearTickCaches()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        // Handle network jitter and websocket reconnect state changes dynamically to prevent calculations pollution
+        viewModelScope.launch {
+            wsManager.connectionState.collect { state ->
+                if (state == "SERVER OFFLINE" || state == "DISCONNECTED" || state == "CONNECTING...") {
+                    try {
+                        android.util.Log.w("DigitAnalysisViewModel", "Network jitter or websocket disconnected ($state)! Clearing database ticks and local caches...")
+                        db.tickOccurrenceDao().clearTicks()
+                        wsManager.clearTickCaches()
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+        }
+
         wsManager.connect()
         observeSettings()
         startObservationLoop()
@@ -287,18 +313,32 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
 
     private var lastObservedRiskProfile: String? = null
 
+    private var lastObservedSessionsPerDay: Int? = null
+
     private fun observeSettings() {
         viewModelScope.launch {
             repository.settingsFlow.collect { settings ->
                 if (settings != null) {
                     wsManager.preferDemo = settings.isDemoAccount
+                    wsManager.activeAppId = settings.derivAppId
                     val oldRiskProfile = lastObservedRiskProfile
+                    val oldSessionsCount = lastObservedSessionsPerDay
+                    
                     _userSettings.value = settings
                     lastObservedRiskProfile = settings.riskProfile
+                    lastObservedSessionsPerDay = settings.sessionsPerDay
+                    
                     recalculateAllStates()
                     if (oldRiskProfile != null && oldRiskProfile != settings.riskProfile) {
                         generateFreshSignal()
                         startSignalsLoop()
+                    }
+                    
+                    if (oldSessionsCount == null || oldSessionsCount != settings.sessionsPerDay) {
+                        com.example.data.AlarmSchedulerHelper.scheduleSessionAlarms(
+                            getApplication(),
+                            settings.sessionsPerDay
+                        )
                     }
                 } else {
                     // Initialize default settings entity
@@ -585,6 +625,15 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
             _tokenValidationMessage.value = null
             onCompleted(validated, responseMessage)
         }
+    }
+
+    /**
+     * Diagnostic token function that directly tests the provided PAT against the Deriv authorize API call
+     * and returns the exact API response or raw error JSON.
+     */
+    fun validateToken(token: String, onCompleted: (Boolean, String?) -> Unit) {
+        val cleanToken = token.replace("\n", "").replace("\r", "").replace(" ", "").trim()
+        wsManager.validateToken(cleanToken, onCompleted)
     }
 
     fun resetDailySignalsCounter() {

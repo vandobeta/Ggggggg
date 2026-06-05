@@ -38,6 +38,13 @@ This document outlines structural goals, real accomplishments, and pending direc
 - Wiped out strict character-length constraints on Personal Access Tokens to fully accept any complete token entered.
 - Added a high-fidelity "SKIP SETUP" bypass button in Step 1 that instantly activates Demo Sandbox mode with default parameters to unblock users.
 - Extended token validation verification checks timeout limit to 17.5 seconds to handle dynamic endpoint latency.
+- Implemented `validateToken` diagnostic function to run custom standalone tests on PAT tokens directly against Deriv authorize API endpoints.
+- Configured dynamic error tracking that captures and logs the exact raw JSON error response from Deriv platforms to simplify token debugging in console and setups.
+- Configured dynamic contract parameter compiler to support even/odd contracts without barriers, transmitting standard absolute digit barriers on alternate contract types.
+- Added custom configurable options for the Deriv App ID in settings to support custom developer applications.
+- Implemented a BroadcastReceiver for `ACTION_BOOT_COMPLETED`/`QUICKBOOT_POWERON` to restore alarm schedules automatically upon device boot.
+- Allows users to select dynamic, waking-hour daily sessions reminder count (1-5), automatically scheduling daily repeating system alarms in `AlarmManager` requiring integrated exact alarm (`SCHEDULE_EXACT_ALARM`, `USE_EXACT_ALARM`) system permissions.
+- Configured dynamic state changes tracking: automatically wipes stale historical ticks from database and resets WebSocket caches immediately on startup, crash recovery, device boot, or connection jitter.
 
 ---
 

@@ -44,6 +44,12 @@ class DerivWebSocketManager {
         .connectTimeout(10, TimeUnit.SECONDS)
         .build()
 
+    var activeAppId: String = "1089"
+
+    fun getClassicWsUrl(): String {
+        return "wss://ws.binaryws.com/websockets/v3?app_id=$activeAppId"
+    }
+
     private var webSocket: WebSocket? = null
     private val scope = CoroutineScope(Dispatchers.Default)
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -194,7 +200,7 @@ class DerivWebSocketManager {
         val emptyBody = "{}".toRequestBody(mediaTypeJson)
         val request = Request.Builder()
             .url("https://api.derivws.com/trading/v1/options/accounts/$accountId/otp")
-            .addHeader("Deriv-App-ID", "1089")
+            .addHeader("Deriv-App-ID", activeAppId)
             .addHeader("Authorization", "Bearer $token")
             .post(emptyBody)
             .build()
@@ -288,14 +294,15 @@ class DerivWebSocketManager {
     }
 
     private fun connectLegacy(token: String) {
-        addLog("Initializing legacy WebSocket fallback connection to: $WS_URL", "INFO")
+        val dynamicWsUrl = getClassicWsUrl()
+        addLog("Initializing legacy WebSocket fallback connection to: $dynamicWsUrl", "INFO")
         synchronized(this) {
             webSocket?.close(1000, "Reset to legacy")
             webSocket = null
         }
         
         val request = Request.Builder()
-            .url(WS_URL)
+            .url(dynamicWsUrl)
             .build()
             
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
@@ -353,7 +360,7 @@ class DerivWebSocketManager {
         
         val request = Request.Builder()
             .url("https://api.derivws.com/trading/v1/options/accounts")
-            .addHeader("Deriv-App-ID", "1089")
+            .addHeader("Deriv-App-ID", activeAppId)
             .addHeader("Authorization", "Bearer $token")
             .get()
             .build()
@@ -550,11 +557,13 @@ class DerivWebSocketManager {
                 val errorObj = json.optJSONObject("error")
                 val errMsg = errorObj?.optString("message") ?: "Unknown API Error"
                 val errCode = errorObj?.optString("code") ?: "UNKNOWN"
+                val rawErrorJson = json.toString()
                 addLog("API Error [$errCode]: $errMsg", "ERROR")
+                addLog("EXACT ERROR RESPONSE: $rawErrorJson", "ERROR")
                 
                 if (msgType == "authorize") {
                     _connectionState.value = "AUTH_FAILED"
-                    _authErrorState.value = errMsg
+                    _authErrorState.value = "API Error [$errCode]: $errMsg (Raw Response: $rawErrorJson)"
                     _authorizedBalance.value = null
                     _authorizedIsVirtual.value = null
                     _authorizedScopes.value = emptyList()
@@ -749,8 +758,87 @@ class DerivWebSocketManager {
         }
     }
 
+    fun validateToken(token: String, onResult: (Boolean, String?) -> Unit) {
+        addLog("Running diagnostics test for Token against Deriv Authorize API...", "INFO")
+        val request = Request.Builder()
+            .url(getClassicWsUrl())
+            .build()
+        
+        var hasResponded = false
+        val tempClient = OkHttpClient()
+        tempClient.newWebSocket(request, object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                try {
+                    val authReq = JSONObject().apply {
+                        put("authorize", token)
+                    }
+                    webSocket.send(authReq.toString())
+                    addLog("Diagnostics: Sent authorize API payload", "OUTBOUND")
+                } catch (e: Exception) {
+                    if (!hasResponded) {
+                        hasResponded = true
+                        onResult(false, e.message)
+                        addLog("Diagnostics Exception: ${e.message}", "ERROR")
+                    }
+                    webSocket.close(1000, "Done")
+                }
+            }
+
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                try {
+                    val json = JSONObject(text)
+                    val msgType = json.optString("msg_type")
+                    if (msgType == "authorize") {
+                        if (json.has("error")) {
+                            val errorObj = json.optJSONObject("error")
+                            val exactErrorJson = json.toString()
+                            addLog("Diagnostic test failed! EXACT API ERROR RESPONSE: $exactErrorJson", "ERROR")
+                            if (!hasResponded) {
+                                hasResponded = true
+                                onResult(false, exactErrorJson)
+                            }
+                        } else {
+                            val authObj = json.optJSONObject("authorize")
+                            val fullname = authObj?.optString("fullname") ?: "Trader"
+                            addLog("Diagnostic test successful for $fullname!", "INFO")
+                            if (!hasResponded) {
+                                hasResponded = true
+                                onResult(true, "Authorized successfully as $fullname")
+                            }
+                        }
+                        webSocket.close(1000, "Done")
+                    }
+                } catch (e: Exception) {
+                    if (!hasResponded) {
+                        hasResponded = true
+                        onResult(false, e.message)
+                    }
+                    webSocket.close(1000, "Done")
+                }
+            }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                if (!hasResponded) {
+                    hasResponded = true
+                    val exactError = "Connection test failure: ${t.message}"
+                    addLog("Diagnostic connection failure: ${t.message}", "ERROR")
+                    onResult(false, exactError)
+                }
+            }
+        })
+    }
+
     fun sendBuyRequest(symbol: String, contractType: String, barrier: String, stake: Double, durationTicks: Int = 2) {
-        addLog("Transmitting Buy parameter proposal contract: $contractType on $symbol (barrier: $barrier, stake: $$stake, duration: $durationTicks t)", "OUTBOUND")
+        val mappedContractType = when (contractType.uppercase()) {
+            "EVEN", "DIGITEVEN" -> "DIGITEVEN"
+            "ODD", "DIGITODD" -> "DIGITODD"
+            "OVER", "DIGITOVER" -> "DIGITOVER"
+            "UNDER", "DIGITUNDER" -> "DIGITUNDER"
+            "DIFFERS", "DIGITDIFF" -> "DIGITDIFF"
+            "MATCHES", "DIGITMATCH" -> "DIGITMATCH"
+            else -> contractType
+        }
+        addLog("Transmitting Buy parameter proposal contract: $mappedContractType on $symbol (barrier: $barrier, stake: $$stake, duration: $durationTicks t)", "OUTBOUND")
         val ws = webSocket
         if (ws != null) {
             try {
@@ -760,15 +848,15 @@ class DerivWebSocketManager {
                     val params = JSONObject().apply {
                         put("amount", stake)
                         put("basis", "stake")
-                        put("contract_type", contractType)
+                        put("contract_type", mappedContractType)
                         put("currency", "USD")
                         put("duration", durationTicks)
                         put("duration_unit", "t")
                         put("symbol", symbol)
-                        if (contractType == "OVER" || contractType == "UNDER") {
-                            put("barrier", if (contractType == "OVER") "+$barrier" else "-$barrier")
-                        } else if (contractType == "DIFFERS") {
-                            put("barrier", barrier)
+                        if (mappedContractType == "DIGITOVER" || mappedContractType == "DIGITUNDER" || mappedContractType == "DIGITDIFF" || mappedContractType == "DIGITMATCH") {
+                            // Extract absolute digit (0-9) for standard digit barrier
+                            val cleanBarrier = barrier.filter { it.isDigit() }
+                            put("barrier", if (cleanBarrier.isNotEmpty()) cleanBarrier else "5")
                         }
                     }
                     put("parameters", params)
@@ -778,6 +866,16 @@ class DerivWebSocketManager {
                 Log.e(TAG, "Error sending buy request: ${e.message}")
                 addLog("Error transmitting buy contract details: ${e.message}", "ERROR")
             }
+        }
+    }
+
+    fun clearTickCaches() {
+        addLog("Enforcing strict cache management: clearing internal tick buffers & resetting last-known quotes to ignore stale packets.", "INFO")
+        histories.clear()
+        lastPrices.clear()
+        _tickUpdateFlow.value = null
+        for ((symbol, _) in VOLATILITY_SYMBOLS) {
+            histories[symbol] = mutableListOf()
         }
     }
 

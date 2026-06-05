@@ -45,5 +45,7 @@ data class AppSettings(
     val derivWalletBalance: Double = 1000.0,
     val isDemoAccount: Boolean = true,
     val demoWalletBalance: Double = 10000.0,
-    val realWalletBalance: Double = 100.0
+    val realWalletBalance: Double = 100.0,
+    val derivAppId: String = "1089",
+    val sessionsPerDay: Int = 3
 )
