@@ -183,6 +183,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
     private var pendingBetTargetDigit: Int = -1
     private var pendingBetDisplayName: String = ""
     private var pendingBetTicksObserved: Int = 0
+    private var lastProcessedBacktestSignalId: String? = null
 
     val connectionState: StateFlow<String> = wsManager.connectionState
     val pingState: StateFlow<Long> = wsManager.pingState
@@ -237,11 +238,51 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
             wsManager.connectionState.collect { state ->
                 if (state == "SERVER OFFLINE" || state == "DISCONNECTED" || state == "CONNECTING...") {
                     try {
-                        android.util.Log.w("DigitAnalysisViewModel", "Network jitter or websocket disconnected ($state)! Clearing database ticks and local caches...")
+                        android.util.Log.w("DigitAnalysisViewModel", "Network jitter or websocket disconnected ($state)! Clearing database ticks, local caches, and resetting tick calculations...")
                         db.tickOccurrenceDao().clearTicks()
                         wsManager.clearTickCaches()
+                        _unifiedTickState.value = null
                     } catch (e: Exception) {
                         e.printStackTrace()
+                    }
+                }
+            }
+        }
+
+        // Synchronously correlate live WS finalized trades with SQLite TradeHistory status update flow
+        viewModelScope.launch {
+            wsManager.realTradeHistory.collect { contracts ->
+                if (contracts.isNotEmpty()) {
+                    contracts.forEach { contract ->
+                        val finishedStatus = contract.status.trim().uppercase()
+                        if (finishedStatus == "WON" || finishedStatus == "LOST" || finishedStatus == "WON_CONTRACT" || finishedStatus == "LOST_CONTRACT") {
+                            val mainStatus = if (finishedStatus.contains("WON")) "WIN" else "LOSS"
+                            synchronized(activePendingTrades) {
+                                val matchIndex = activePendingTrades.indexOfFirst { 
+                                    it.symbolCode == contract.symbol && it.status == "PENDING" 
+                                }
+                                if (matchIndex != -1) {
+                                    val pending = activePendingTrades[matchIndex]
+                                    val resolvedTrade = pending.copy(
+                                        exitPrice = contract.bidPrice,
+                                        exitDigit = contract.exitDigit,
+                                        profitLoss = contract.profit,
+                                        status = mainStatus
+                                    )
+                                    activePendingTrades.removeAt(matchIndex)
+                                    tradeTicksRemaining.remove(pending.id)
+                                    // Save the resolution directly in ROOM SQLite
+                                    viewModelScope.launch(Dispatchers.IO) {
+                                        try {
+                                            db.tradeHistoryDao().updateTrade(resolvedTrade)
+                                            android.util.Log.d("TradeCorrelationListener", "Interlinked update: Contract ID ${contract.contractId} on ${contract.symbol} solved as $mainStatus. Profit: $${contract.profit}")
+                                        } catch (e: Exception) {
+                                            e.printStackTrace()
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1018,12 +1059,14 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
             }
         }
 
-        // Place next bet on active symbol
+        // Place next bet on active symbol (only 1 backtest bet allowed per 30-second signal)
         val packet = _selectedPacket.value
-        if (pendingBetSymbol == null && packet != null && packet.symbol == symbol && packet.predictionsList.isNotEmpty()) {
+        val activeSignalId = _activeSignal.value?.id
+        if (pendingBetSymbol == null && activeSignalId != null && activeSignalId != lastProcessedBacktestSignalId && packet != null && packet.symbol == symbol && packet.predictionsList.isNotEmpty()) {
             val prime = packet.predictionsList.first()
             val userContractPref = _selectedNotifierContract.value ?: "MATCHES"
 
+            lastProcessedBacktestSignalId = activeSignalId
             pendingBetSymbol = symbol
             pendingBetDigit = prime.digit
             pendingBetContractType = userContractPref

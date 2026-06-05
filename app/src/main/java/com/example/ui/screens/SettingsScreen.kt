@@ -539,6 +539,42 @@ fun SettingsScreen(
                             )
                         }
                     }
+
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+
+                    // Relocated Spaced Sessions Daily Reminders
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("DAILY REMINDER COUNT", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("Sets spaced system alarms to alert you spaced during wakeful intervals (9 AM - 9 PM)", color = Color.Gray, fontSize = 9.sp)
+                            }
+                            Text(
+                                text = "${userSettings.sessionsPerDay} sessions",
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                        Slider(
+                            value = userSettings.sessionsPerDay.toFloat(),
+                            onValueChange = {
+                                viewModel.updateSettingsInDb(userSettings.copy(sessionsPerDay = it.toInt()))
+                            },
+                            valueRange = 0f..5f,
+                            steps = 4,
+                            colors = SliderDefaults.colors(
+                                thumbColor = MaterialTheme.colorScheme.primary,
+                                activeTrackColor = MaterialTheme.colorScheme.primary,
+                                inactiveTrackColor = Color.White.copy(alpha = 0.15f)
+                            )
+                        )
+                    }
                 }
             }
 
@@ -1171,40 +1207,6 @@ fun SettingsScreen(
                                 unfocusedTextColor = Color.White,
                                 focusedBorderColor = MaterialTheme.colorScheme.primary,
                                 unfocusedBorderColor = Color.White.copy(alpha = 0.15f)
-                            )
-                        )
-                    }
-
-                    // Sessions Reminder Configuration
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("DAILY REMINDER COUNT", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                Text("Sets spaced system alarms to alert you spaced during wakeful intervals (9 AM - 9 PM)", color = Color.Gray, fontSize = 9.sp)
-                            }
-                            Text(
-                                text = "${userSettings.sessionsPerDay} sessions",
-                                color = MaterialTheme.colorScheme.primary,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                        Slider(
-                            value = userSettings.sessionsPerDay.toFloat(),
-                            onValueChange = {
-                                viewModel.updateSettingsInDb(userSettings.copy(sessionsPerDay = it.toInt()))
-                            },
-                            valueRange = 0f..5f,
-                            steps = 4,
-                            colors = SliderDefaults.colors(
-                                thumbColor = MaterialTheme.colorScheme.primary,
-                                activeTrackColor = MaterialTheme.colorScheme.primary,
-                                inactiveTrackColor = Color.White.copy(alpha = 0.15f)
                             )
                         )
                     }

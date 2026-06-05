@@ -629,13 +629,15 @@ class DerivWebSocketManager {
                 val pocObj = json.optJSONObject("proposal_open_contract")
                 if (pocObj != null) {
                     val contractId = pocObj.optLong("contract_id")
-                    val isSold = pocObj.optInt("is_sold", 0) == 1
+                    val status = pocObj.optString("status", "open")
+                    val isSold = pocObj.optBoolean("is_sold") || 
+                                 pocObj.optInt("is_sold", 0) == 1 || 
+                                 status.trim().lowercase() != "open"
                     val underlying = pocObj.optString("underlying", "")
                     val contractType = pocObj.optString("contract_type", "")
                     val buyPrice = pocObj.optDouble("buy_price", 0.0)
                     val bidPrice = pocObj.optDouble("bid_price", 0.0)
                     val profit = pocObj.optDouble("profit", 0.0)
-                    val status = pocObj.optString("status", "open")
                     val exitTick = pocObj.optInt("exit_tick", -1)
                     val exitDigit = if (exitTick != -1) (exitTick % 10) else null
 
