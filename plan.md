@@ -36,6 +36,8 @@ This document outlines structural goals, real accomplishments, and pending direc
 - Integrated `POST /trading/v1/options/accounts/{accountId}/otp` to generate authorized short-lived WebSocket login URLs.
 - Implemented intelligent "try both" fallbacks: automatically prioritize the preferred account type, dynamically try the secondary type with its own OTP handshake on failure, and drop back gracefully to classic endpoints if needed.
 - Wiped out strict character-length constraints on Personal Access Tokens to fully accept any complete token entered.
+- Added a high-fidelity "SKIP SETUP" bypass button in Step 1 that instantly activates Demo Sandbox mode with default parameters to unblock users.
+- Extended token validation verification checks timeout limit to 17.5 seconds to handle dynamic endpoint latency.
 
 ---
 

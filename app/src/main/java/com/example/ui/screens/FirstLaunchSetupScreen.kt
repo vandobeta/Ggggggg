@@ -285,7 +285,33 @@ fun FirstLaunchSetupScreen(
                         Text("BACK", fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
                     }
                 } else {
-                    Spacer(modifier = Modifier.width(60.dp))
+                    OutlinedButton(
+                        onClick = {
+                            val finalSettings = userSettings.copy(
+                                traderName = "Demo Trader",
+                                capital = 10000.0,
+                                currency = "USD",
+                                goal = "Demo Trading Platform",
+                                derivToken = "",
+                                isDemoAccount = true,
+                                isFirstLaunch = false
+                            )
+                            viewModel.updateSettingsInDb(finalSettings)
+
+                            // Persistent SharedPreferences so it never shows up again on startup
+                            val sharedPrefs = context.getSharedPreferences("deriv_radar_prefs", android.content.Context.MODE_PRIVATE)
+                            sharedPrefs.edit().putBoolean("setup_completed", true).apply()
+
+                            Toast.makeText(context, "Demo Mode Activated. Public data feeds online!", Toast.LENGTH_LONG).show()
+                        },
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = Color.LightGray
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("SKIP SETUP", fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                    }
                 }
 
                 val nextEnabled = when (currentStep) {

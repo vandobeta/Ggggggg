@@ -534,7 +534,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
             var delayCount = 0
 
             // Query authorization states from web socket manager
-            while (delayCount < 10) {
+            while (delayCount < 35) {
                 delay(500)
                 val connectionState = wsManager.connectionState.value
                 val scopes = wsManager.authorizedScopes.value
