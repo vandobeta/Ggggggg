@@ -291,6 +291,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
         viewModelScope.launch {
             repository.settingsFlow.collect { settings ->
                 if (settings != null) {
+                    wsManager.preferDemo = settings.isDemoAccount
                     val oldRiskProfile = lastObservedRiskProfile
                     _userSettings.value = settings
                     lastObservedRiskProfile = settings.riskProfile
@@ -522,25 +523,6 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
         if (cleanToken.isEmpty()) {
             onCompleted(false, "Deriv security token is empty.")
             return
-        }
-
-        if (cleanToken.startsWith("pat_", ignoreCase = true)) {
-            if (cleanToken.length == 34) {
-                onCompleted(
-                    false,
-                    "API Error: Truncation detected! Your token has exactly 34 characters.\n\n" +
-                    "It looks like you copied only the FIRST line from the wrapped text on your mobile web browser. Deriv Personal Access Tokens are 68 characters long (including the 'pat_' prefix).\n\n" +
-                    "Please return to the Deriv dashboard, click 'Copy to clipboard' directly, or drag selection handles to copy both lines!"
-                )
-                return
-            } else if (cleanToken.length != 68) {
-                onCompleted(
-                    false,
-                    "API Error: Invalid token length (${cleanToken.length} characters).\n\n" +
-                    "Deriv Personal Access Tokens starting with 'pat_' must be exactly 68 characters long. Please check your token and try pasting again."
-                )
-                return
-            }
         }
 
         viewModelScope.launch {

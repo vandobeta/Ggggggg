@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.math.BigDecimal
 import java.util.Locale
@@ -123,7 +125,315 @@ class DerivWebSocketManager {
 
     private var pingSendTime = 0L
     private var pingRunnable: Runnable? = null
+    var preferDemo: Boolean = true
     private var pendingAuthorizeToken: String? = null
+
+    // Helper data class representing a robust options trading account retrieved from REST API
+    data class DerivApiAccount(
+        val accountId: String,
+        val accountType: String, // "demo" or "real"
+        val balance: Double,
+        val currency: String,
+        val status: String,
+        val name: String,
+        val email: String
+    )
+
+    private fun parseAccounts(responseBody: String): List<DerivApiAccount> {
+        val accountsList = mutableListOf<DerivApiAccount>()
+        try {
+            val json = JSONObject(responseBody)
+            val dataArray = json.optJSONArray("data")
+            if (dataArray != null) {
+                for (i in 0 until dataArray.length()) {
+                    val accObj = dataArray.optJSONObject(i) ?: continue
+                    val accountId = accObj.optString("account_id")
+                    val accountType = accObj.optString("account_type")
+                    val balance = accObj.optDouble("balance", 0.0)
+                    val currency = accObj.optString("currency", "USD")
+                    val status = accObj.optString("status", "active")
+                    val name = accObj.optString("name", "Deriv Trader")
+                    val email = accObj.optString("email", "")
+                    accountsList.add(
+                        DerivApiAccount(
+                            accountId = accountId,
+                            accountType = accountType,
+                            balance = balance,
+                            currency = currency,
+                            status = status,
+                            name = name,
+                            email = email
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error parsing options accounts JSON: ${e.message}")
+        }
+        return accountsList
+    }
+
+    private fun parseRestError(errorBody: String?): String? {
+        if (errorBody.isNullOrBlank()) return null
+        return try {
+            val json = JSONObject(errorBody)
+            val errorsArray = json.optJSONArray("errors")
+            if (errorsArray != null && errorsArray.length() > 0) {
+                val firstError = errorsArray.optJSONObject(0)
+                firstError?.optString("message")
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun getOtpWebsocketUrl(token: String, accountId: String): String? {
+        val mediaTypeJson = "application/json; charset=utf-8".toMediaTypeOrNull()
+        val emptyBody = "{}".toRequestBody(mediaTypeJson)
+        val request = Request.Builder()
+            .url("https://api.derivws.com/trading/v1/options/accounts/$accountId/otp")
+            .addHeader("Deriv-App-ID", "1089")
+            .addHeader("Authorization", "Bearer $token")
+            .post(emptyBody)
+            .build()
+            
+        return try {
+            val response = client.newCall(request).execute()
+            if (response.isSuccessful) {
+                val body = response.body?.string() ?: ""
+                val json = JSONObject(body)
+                val dataObj = json.optJSONObject("data")
+                dataObj?.optString("url")
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun connectWebSocketNewUrl(wsUrl: String, account: DerivApiAccount) {
+        synchronized(this) {
+            webSocket?.close(1000, "App reconnect to authorized link")
+            webSocket = null
+        }
+        
+        val request = Request.Builder()
+            .url(wsUrl)
+            .build()
+            
+        webSocket = client.newWebSocket(request, object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                _connectionState.value = "AUTHORIZED"
+                addLog("Connected to Options trading WebSocket for ${account.accountId} (${account.accountType.uppercase()})", "INFO")
+                
+                // Populate profile states so UI/DB update live
+                _authorizedBalance.value = account.balance
+                _authorizedTraderName.value = account.name
+                _authorizedEmail.value = account.email
+                _authorizedIsVirtual.value = (account.accountType == "demo")
+                _authorizedCountry.value = "US"
+                _authorizedCurrency.value = account.currency
+                _authorizedUserId.value = account.accountId
+                _authorizedScopes.value = listOf("read", "trade")
+                _authErrorState.value = null
+                
+                // Subscribe to public volatility streams
+                subscribeToAllStreams(webSocket)
+                addLog("Subscribed to Volatility Streams: ${VOLATILITY_SYMBOLS.map { it.first }.joinToString()}", "INFO")
+                
+                // Subscribe to live balance updates
+                subscribeToBalance(webSocket)
+                
+                // Start ping loop
+                startPingLoop()
+            }
+            
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                parseMessage(text)
+            }
+            
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                Log.e(TAG, "New API WebSocket failure: ${t.message}")
+                addLog("WebSocket failure: ${t.message}. Reconnect to a working network.", "ERROR")
+                _connectionState.value = "SERVER OFFLINE"
+                this@DerivWebSocketManager.webSocket = null
+            }
+            
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                addLog("WebSocket closing: $reason (code: $code)", "INFO")
+            }
+            
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                _connectionState.value = "DISCONNECTED"
+                this@DerivWebSocketManager.webSocket = null
+                addLog("WebSocket channel disconnected cleanly.", "INFO")
+            }
+        })
+    }
+
+    private fun subscribeToBalance(ws: WebSocket) {
+        try {
+            val json = JSONObject().apply {
+                put("balance", 1)
+                put("subscribe", 1)
+            }
+            ws.send(json.toString())
+            addLog("Sent balance updates subscription", "OUTBOUND")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error subscribing to balance: ${e.message}")
+        }
+    }
+
+    private fun connectLegacy(token: String) {
+        addLog("Initializing legacy WebSocket fallback connection to: $WS_URL", "INFO")
+        synchronized(this) {
+            webSocket?.close(1000, "Reset to legacy")
+            webSocket = null
+        }
+        
+        val request = Request.Builder()
+            .url(WS_URL)
+            .build()
+            
+        webSocket = client.newWebSocket(request, object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                _connectionState.value = "CONNECTED"
+                Log.d(TAG, "Legacy Deriv WebSocket Open!")
+                addLog("Secure WebSocket Connection Established successfully (Legacy Fallback)", "INFO")
+                
+                // Subscribe to streams
+                subscribeToAllStreams(webSocket)
+                addLog("Subscribed to Volatility Streams: ${VOLATILITY_SYMBOLS.map { it.first }.joinToString()}", "INFO")
+                
+                // Authorize on socket
+                try {
+                    val json = JSONObject().apply {
+                        put("authorize", token)
+                    }
+                    webSocket.send(json.toString())
+                    addLog("Transmitting legacy authorizing packet...", "OUTBOUND")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Legacy authorize send error: ${e.message}")
+                }
+                
+                // Start ping loop
+                startPingLoop()
+            }
+            
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                parseMessage(text)
+            }
+            
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                Log.e(TAG, "Legacy failure: ${t.message}")
+                _connectionState.value = "SERVER OFFLINE"
+                this@DerivWebSocketManager.webSocket = null
+                addLog("Legacy WebSocket failure: ${t.message}", "ERROR")
+            }
+            
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                addLog("Legacy WebSocket closing: $reason (code: $code)", "INFO")
+            }
+            
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                _connectionState.value = "DISCONNECTED"
+                this@DerivWebSocketManager.webSocket = null
+                addLog("Legacy WebSocket channel disconnected cleanly.", "INFO")
+            }
+        })
+    }
+
+    private fun authenticateAndConnectNewApi(token: String, isDemoDesired: Boolean) {
+        _connectionState.value = "CONNECTING..."
+        Log.d(TAG, "Connecting using new Option REST endpoints and OTP WebSocket flow...")
+        addLog("Querying active options accounts from REST endpoint...", "INFO")
+        
+        val request = Request.Builder()
+            .url("https://api.derivws.com/trading/v1/options/accounts")
+            .addHeader("Deriv-App-ID", "1089")
+            .addHeader("Authorization", "Bearer $token")
+            .get()
+            .build()
+            
+        try {
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) {
+                val errorBody = response.body?.string()
+                val errMsg = parseRestError(errorBody) ?: "HTTP Fetch Accounts error code ${response.code}"
+                addLog("REST accounts retrieval failed: $errMsg", "ERROR")
+                
+                // Try legacy fallback
+                addLog("Falling back to legacy WebSocket authorization flow...", "INFO")
+                connectLegacy(token)
+                return
+            }
+            
+            val responseBody = response.body?.string() ?: ""
+            val accounts = parseAccounts(responseBody)
+            if (accounts.isEmpty()) {
+                _connectionState.value = "AUTH_FAILED"
+                _authErrorState.value = "No Options Accounts found for this token."
+                addLog("REST authorization failed: No options accounts listed on token.", "ERROR")
+                return
+            }
+            
+            // Try preferred mode, if it fails or doesn't exist try alternate!
+            val preferredType = if (isDemoDesired) "demo" else "real"
+            val alternateType = if (isDemoDesired) "real" else "demo"
+            
+            val preferredAccount = accounts.find { it.accountType == preferredType }
+            val alternateAccount = accounts.find { it.accountType == alternateType }
+            
+            var accountToUse = preferredAccount
+            var usedAlternate = false
+            
+            if (accountToUse == null) {
+                accountToUse = alternateAccount
+                usedAlternate = true
+                addLog("No $preferredType Options Account available on token. Real/Demo Switch: attempting $alternateType account setup...", "INFO")
+            }
+            
+            if (accountToUse == null) {
+                _connectionState.value = "AUTH_FAILED"
+                _authErrorState.value = "No suitable Demo or Real Options accounts found."
+                addLog("REST authorization failed: Neither demo nor real options accounts found.", "ERROR")
+                return
+            }
+            
+            // Call OTP endpoint
+            var wsUrl = getOtpWebsocketUrl(token, accountToUse.accountId)
+            
+            if (wsUrl == null && !usedAlternate && alternateAccount != null) {
+                addLog("Secure OTP acquisition failed for preferred account type. Real/Demo Switch: trying fallback alternate $alternateType account...", "INFO")
+                accountToUse = alternateAccount
+                usedAlternate = true
+                wsUrl = getOtpWebsocketUrl(token, accountToUse.accountId)
+            }
+            
+            if (wsUrl == null) {
+                _connectionState.value = "AUTH_FAILED"
+                _authErrorState.value = "Failed to generate OTP secure trade URL."
+                addLog("REST authorization failed: unable to obtain WebSocket login OTP.", "ERROR")
+                return
+            }
+            
+            // Conntect to the obtained URL directly
+            val targetAccount = accountToUse
+            mainHandler.post {
+                connectWebSocketNewUrl(wsUrl, targetAccount)
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "New REST API validation fatal: ${e.message}")
+            addLog("New REST API authentication exception: ${e.message}. Attempting legacy fallback...", "ERROR")
+            mainHandler.post {
+                connectLegacy(token)
+            }
+        }
+    }
 
     init {
         // Initialize history lists
@@ -133,32 +443,33 @@ class DerivWebSocketManager {
     }
 
     fun connect() {
+        val token = pendingAuthorizeToken
+        if (!token.isNullOrEmpty()) {
+            sendAuthorizeRequest(token)
+            return
+        }
+
         if (webSocket != null) return
 
         _connectionState.value = "CONNECTING..."
-        Log.d(TAG, "Connecting to Deriv WebSocket...")
-        addLog("Initiating connection to Deriv secure websockets: $WS_URL", "INFO")
+        Log.d(TAG, "Connecting to public Deriv Options WebSocket...")
+        val publicUrl = "wss://api.derivws.com/trading/v1/options/ws/public"
+        addLog("Initiating connection to public options market data: $publicUrl", "INFO")
 
         val request = Request.Builder()
-            .url(WS_URL)
+            .url(publicUrl)
             .build()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 _connectionState.value = "CONNECTED"
-                Log.d(TAG, "Deriv WebSocket Open!")
-                addLog("Secure WebSocket Connection Established successfully!", "INFO")
+                Log.d(TAG, "Public Deriv WebSocket Open!")
+                addLog("Public Options WebSocket Connection Established successfully!", "INFO")
                 
                 // Subscribe to all volatility streams
                 subscribeToAllStreams(webSocket)
                 addLog("Subscribed to Volatility Streams: ${VOLATILITY_SYMBOLS.map { it.first }.joinToString()}", "INFO")
                 
-                // Trigger sending authorization if we have a pending token
-                pendingAuthorizeToken?.let { token ->
-                    addLog("De-queuing pending authorize request...", "INFO")
-                    sendAuthorizeRequest(token)
-                }
-
                 // Start ping loop
                 startPingLoop()
             }
@@ -168,21 +479,20 @@ class DerivWebSocketManager {
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e(TAG, "WebSocket failure: ${t.message}")
+                Log.e(TAG, "Public WebSocket failure: ${t.message}")
                 _connectionState.value = "SERVER OFFLINE"
                 this@DerivWebSocketManager.webSocket = null
-                addLog("WebSocket socket failure: ${t.message}. Reconnect to a working network.", "ERROR")
+                addLog("Public WebSocket socket failure: ${t.message}.", "ERROR")
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                _connectionState.value = "DISCONNECTING"
-                addLog("WebSocket closing: $reason (code: $code)", "INFO")
+                addLog("Public WebSocket closing: $reason (code: $code)", "INFO")
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 _connectionState.value = "DISCONNECTED"
                 this@DerivWebSocketManager.webSocket = null
-                addLog("WebSocket channel disconnected cleanly.", "INFO")
+                addLog("Public WebSocket channel disconnected cleanly.", "INFO")
             }
         })
     }
@@ -433,22 +743,9 @@ class DerivWebSocketManager {
     fun sendAuthorizeRequest(token: String) {
         pendingAuthorizeToken = token
         _authErrorState.value = null
-        val ws = webSocket
-        val connection = _connectionState.value
-        addLog("Sending Authorization request token: ${if (token.length > 5) token.take(5) + "..." else token}", "OUTBOUND")
-        if (ws != null && (connection == "CONNECTED" || connection == "AUTHORIZED")) {
-            try {
-                val json = JSONObject().apply {
-                    put("authorize", token)
-                }
-                ws.send(json.toString())
-            } catch (e: Exception) {
-                Log.e(TAG, "Error sending authorize request: ${e.message}")
-                addLog("Error transmitting authorizing packet: ${e.message}", "ERROR")
-            }
-        } else {
-            addLog("WebSocket disconnected or connecting. Queueing authorize request and establishing link...", "INFO")
-            connect()
+        addLog("Initiating dynamic REST-driven PAT token activation: ${if (token.length > 5) token.take(5) + "..." else token}", "OUTBOUND")
+        scope.launch(Dispatchers.IO) {
+            authenticateAndConnectNewApi(token, preferDemo)
         }
     }
 

@@ -30,10 +30,12 @@ This document outlines structural goals, real accomplishments, and pending direc
   5. Decoded history outputs (Wins, Losses, Exits, Profits)
 - Embed full-screen system flags at activity launch.
 
-### ✅ Milestone 5: Dual Demo/Real Auto-Configurations & Token Auto-Detection
-- Read the official `is_virtual` attribute from successful `authorize` WebSocket payloads to auto-detect the token's real account type.
-- Automatically configure and transition the application's global state (`isDemoAccount`) to match the authorized token type rather than erroring out due to toggle mismatch.
+### ✅ Milestone 5: Dual Demo/Real Auto-Configurations, New Options REST API, and Token Auto-Detection
 - Support real-time synchronization between the authorized socket account mode and local persistence databases seamlessly.
+- Integrated `GET /trading/v1/options/accounts` to fetch all available accounts under the Personal Access Token (PAT).
+- Integrated `POST /trading/v1/options/accounts/{accountId}/otp` to generate authorized short-lived WebSocket login URLs.
+- Implemented intelligent "try both" fallbacks: automatically prioritize the preferred account type, dynamically try the secondary type with its own OTP handshake on failure, and drop back gracefully to classic endpoints if needed.
+- Wiped out strict character-length constraints on Personal Access Tokens to fully accept any complete token entered.
 
 ---
 
