@@ -43,6 +43,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Spacer
@@ -108,6 +113,144 @@ class MainActivity : ComponentActivity() {
         } else {
           var currentScreen by remember { mutableStateOf("DASHBOARD") }
           val errorMessage by viewModel.navErrorMessage.collectAsState()
+          val tradeFeedback by viewModel.tradeFeedback.collectAsState()
+
+          // Detailed Interactive Trade Feedback and Error Popups
+          tradeFeedback?.let { feedback ->
+            var rawExpanded by remember { mutableStateOf(false) }
+            val feedbackHaptic = LocalHapticFeedback.current
+            
+            // Trigger haptic vibration feedback on new occurrences
+            LaunchedEffect(feedback.timestamp) {
+              if (feedback.isError) {
+                feedbackHaptic.performHapticFeedback(HapticFeedbackType.LongPress)
+              } else {
+                feedbackHaptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+              }
+            }
+
+            AlertDialog(
+              onDismissRequest = { viewModel.dismissTradeFeedback() },
+              containerColor = Color(0xFF131722),
+              titleContentColor = Color.White,
+              textContentColor = Color.LightGray,
+              title = {
+                Row(
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                  Text(
+                    text = if (feedback.isError) "⚠️ TRANSACTION REFUSED" else "📊 TRANSACTION FEEDBACK",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Black,
+                    color = if (feedback.isError) Color(0xFFEF4444) else Color(0xFF10B981)
+                  )
+                }
+              },
+              text = {
+                Column(
+                  modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                  verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                  Surface(
+                    color = if (feedback.isError) Color(0xFFEF4444).copy(alpha = 0.08f) else Color(0xFF10B981).copy(alpha = 0.08f),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, if (feedback.isError) Color(0xFFEF4444).copy(alpha = 0.3f) else Color(0xFF10B981).copy(alpha = 0.3f)),
+                    modifier = Modifier.fillMaxWidth()
+                  ) {
+                    Column(
+                      modifier = Modifier.padding(12.dp),
+                      verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                      Text(
+                        text = feedback.title.uppercase(),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp,
+                        color = if (feedback.isError) Color(0xFFFCA5A5) else Color(0xFF6EE7B7),
+                        fontFamily = FontFamily.Monospace
+                      )
+                      Text(
+                        text = feedback.message,
+                        fontSize = 11.sp,
+                        color = Color.White,
+                        lineHeight = 15.sp,
+                        fontFamily = FontFamily.Monospace
+                      )
+                    }
+                  }
+                  
+                  if (feedback.rawDetails.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                      Row(
+                        modifier = Modifier
+                          .fillMaxWidth()
+                          .clickable { rawExpanded = !rawExpanded }
+                          .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                      ) {
+                        Text(
+                          text = "RAW TRANSACTION LOGS",
+                          color = Color.Gray,
+                          fontSize = 9.sp,
+                          fontWeight = FontWeight.Bold,
+                          fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                          text = if (rawExpanded) "[-] COLLAPSE" else "[+] EXPAND DETAILS",
+                          color = MaterialTheme.colorScheme.primary,
+                          fontSize = 9.sp,
+                          fontWeight = FontWeight.Bold,
+                          fontFamily = FontFamily.Monospace
+                        )
+                      }
+                      
+                      if (rawExpanded) {
+                        Surface(
+                          color = Color.Black.copy(alpha = 0.4f),
+                          shape = RoundedCornerShape(6.dp),
+                          border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.08f)),
+                          modifier = Modifier.fillMaxWidth()
+                        ) {
+                          Text(
+                            text = feedback.rawDetails,
+                            color = Color(0xFF38BDF8),
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier
+                              .padding(8.dp)
+                              .fillMaxWidth(),
+                            lineHeight = 12.sp
+                          )
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              confirmButton = {
+                TextButton(
+                  onClick = {
+                    feedbackHaptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    viewModel.dismissTradeFeedback()
+                  },
+                  colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.primary
+                  )
+                ) {
+                  Text(
+                    text = "DISMISS COCKPIT ALERT",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                  )
+                }
+              }
+            )
+          }
 
           Scaffold(
             modifier = Modifier.fillMaxSize(),

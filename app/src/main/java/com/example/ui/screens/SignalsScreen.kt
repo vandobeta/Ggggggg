@@ -6,6 +6,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -42,6 +45,7 @@ fun SignalsScreen(
     viewModel: DigitAnalysisViewModel,
     modifier: Modifier = Modifier
 ) {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val context = LocalContext.current
     val activeSignal by viewModel.activeSignal.collectAsState()
     val countdown by viewModel.signalCountdown.collectAsState()
@@ -855,7 +859,8 @@ fun SignalsScreen(
 
                                         Button(
                                             onClick = {
-                                                val stakeValue = manualStake.toDoubleOrNull() ?: 5.00
+                                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                               val stakeValue = manualStake.toDoubleOrNull() ?: 5.00
                                                 val barrierNum = signal.barrier.toIntOrNull() ?: 5
                                                 viewModel.executeManualTrade(
                                                     symbolCode = signal.symbol,
@@ -1083,7 +1088,7 @@ fun SignalsScreen(
 
             var isCustomMode by remember { mutableStateOf(false) }
             var targetSymbol by remember { mutableStateOf("1HZ100V") }
-            var stakeInput by remember { mutableStateOf("5.00") }
+            var stakeInput by remember(userSettings.stake) { mutableStateOf(userSettings.stake.toString()) }
             var customContractType by remember { mutableStateOf("UNDER") }
             var customBarrier by remember { mutableStateOf(4) }
 
@@ -1365,20 +1370,24 @@ fun SignalsScreen(
                                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                         Text("CONTRACT CATEGORY STYLE", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
                                         Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .horizontalScroll(rememberScrollState()),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
-                                            val types = listOf("UNDER", "OVER", "DIFFERS", "EVEN", "ODD")
+                                            val types = listOf(
+                                                "UNDER", "OVER", "MATCHES", "DIFFERS", "EVEN", "ODD", 
+                                                "RISE", "FALL", "ACCUM", "ASIANU", "ASIAND", "CALL", "PUT"
+                                            )
                                             types.forEach { type ->
                                                 val sel = customContractType == type
                                                 Box(
                                                     modifier = Modifier
-                                                        .weight(1f)
                                                         .clip(RoundedCornerShape(6.dp))
-                                                        .background(if (sel) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.03f))
+                                                        .background(if (sel) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f))
                                                         .border(0.5.dp, if (sel) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.05f), RoundedCornerShape(6.dp))
                                                         .clickable { customContractType = type }
-                                                        .padding(vertical = 6.dp),
+                                                        .padding(horizontal = 12.dp, vertical = 6.dp),
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     Text(type, color = if (sel) Color.White else Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
@@ -1387,16 +1396,19 @@ fun SignalsScreen(
                                         }
                                     }
 
-                                    // Barrier select (only if not EVEN or ODD)
-                                    if (customContractType != "EVEN" && customContractType != "ODD") {
+                                    // Dynamic Barrier/Param Select (Only if applicable)
+                                    val needsBarrier = customContractType in listOf("UNDER", "OVER", "MATCHES", "DIFFERS")
+                                    val needsGrowthRate = customContractType == "ACCUM"
+                                    
+                                    if (needsBarrier) {
                                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            Text(
-                                                text = if (customContractType == "DIFFERS") "DIFFERS EXCLUDED DIGIT MATCH" else "PREDICTED TREND BOUNDARY BARRIER", 
-                                                color = Color.Gray, 
-                                                fontSize = 8.sp, 
-                                                fontWeight = FontWeight.Bold, 
-                                                fontFamily = FontFamily.Monospace
-                                            )
+                                            val title = when (customContractType) {
+                                                "UNDER" -> "UNDER TARGET BARRIER (STAKE PAYOUT EXITS < BARRIER)"
+                                                "OVER" -> "OVER TARGET BARRIER (STAKE PAYOUT EXITS > BARRIER)"
+                                                "MATCHES" -> "MATCHING DIGIT REQUIREMENT"
+                                                else -> "DIFFERS EXCLUDED DIGIT MATCH"
+                                            }
+                                            Text(title, color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -1416,6 +1428,30 @@ fun SignalsScreen(
                                                         contentAlignment = Alignment.Center
                                                     ) {
                                                         Text("$b", color = if (sel) Color.White else Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else if (needsGrowthRate) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text("ACCUMULATOR TICK GROWTH RATE PERCENTAGE (%)", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                for (g in 1..5) {
+                                                    val sel = customBarrier == g
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .clip(RoundedCornerShape(4.dp))
+                                                            .background(if (sel) Color(0xFFF97316).copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f))
+                                                            .border(0.5.dp, if (sel) Color(0xFFF97316) else Color.White.copy(alpha = 0.05f), RoundedCornerShape(4.dp))
+                                                            .clickable { customBarrier = g }
+                                                            .padding(vertical = 8.dp),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Text("$g%", color = if (sel) Color.White else Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Black)
                                                     }
                                                 }
                                             }
@@ -1485,6 +1521,7 @@ fun SignalsScreen(
                             // Action submission trigger
                             Button(
                                 onClick = {
+                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                     viewModel.executeManualTrade(
                                         symbolCode = if (isCustomMode) targetSymbol else autoSymbol,
                                         displayName = if (isCustomMode) {

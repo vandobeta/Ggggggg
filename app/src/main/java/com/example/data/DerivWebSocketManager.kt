@@ -23,7 +23,7 @@ class DerivWebSocketManager {
 
     companion object {
         private const val TAG = "DerivWebSocketManager"
-        private const val WS_URL = "wss://ws.binaryws.com/websockets/v3?app_id=1089"
+        private const val WS_URL = "wss://ws.binaryws.com/websockets/v3?app_id=33sKaNullz3jmWQs7OXxZ"
         
         val VOLATILITY_SYMBOLS = listOf(
             "1HZ10V" to "Volatility 10 (1S)",
@@ -45,7 +45,7 @@ class DerivWebSocketManager {
         .pingInterval(15, TimeUnit.SECONDS) // OkHttp automatic ping-pong to maintain robust socket and detect internet dropouts
         .build()
 
-    var activeAppId: String = "1089"
+    var activeAppId: String = "33sKaNullz3jmWQs7OXxZ"
     private var isUsingNewApi = false
 
     fun getClassicWsUrl(): String {
@@ -110,6 +110,22 @@ class DerivWebSocketManager {
         val exitDigit: Int? = null,
         val timestamp: Long = System.currentTimeMillis()
     )
+
+    data class TradeFeedback(
+        val isError: Boolean,
+        val isWin: Boolean = false,
+        val title: String,
+        val message: String,
+        val rawDetails: String = "",
+        val timestamp: Long = System.currentTimeMillis()
+    )
+
+    private val _tradeFeedbackFlow = MutableStateFlow<TradeFeedback?>(null)
+    val tradeFeedbackFlow: StateFlow<TradeFeedback?> = _tradeFeedbackFlow.asStateFlow()
+
+    fun dismissTradeFeedback() {
+        _tradeFeedbackFlow.value = null
+    }
 
     private val _liveLogs = MutableStateFlow<List<WsLog>>(emptyList())
     val liveLogs: StateFlow<List<WsLog>> = _liveLogs.asStateFlow()
@@ -594,6 +610,20 @@ class DerivWebSocketManager {
                     _authorizedBalance.value = null
                     _authorizedIsVirtual.value = null
                     _authorizedScopes.value = emptyList()
+                } else if (msgType == "buy") {
+                    _tradeFeedbackFlow.value = TradeFeedback(
+                        isError = true,
+                        title = "Trade Execution Refused",
+                        message = "Deriv API Error: $errMsg\nCode: $errCode",
+                        rawDetails = rawErrorJson
+                    )
+                } else {
+                    _tradeFeedbackFlow.value = TradeFeedback(
+                        isError = true,
+                        title = "API Error (${msgType.uppercase()})",
+                        message = errMsg,
+                        rawDetails = rawErrorJson
+                    )
                 }
             } else if (msgType == "authorize") {
                 val authObj = json.optJSONObject("authorize")
@@ -662,6 +692,14 @@ class DerivWebSocketManager {
                         )
                         addActiveContract(contract)
                         addLog("Contract purchased: ID $contractId on $symbol ($contractType). Stake: $$buyPrice.", "INBOUND")
+                        
+                        _tradeFeedbackFlow.value = TradeFeedback(
+                            isError = false,
+                            title = "Trade Executed On-Chain",
+                            message = "Successfully purchased contract ID $contractId on $symbol ($contractType) for $$buyPrice.",
+                            rawDetails = json.toString()
+                        )
+                        
                         subscribeToContractResult(contractId)
                     }
                 }
@@ -752,6 +790,17 @@ class DerivWebSocketManager {
             if (histList.size > 100) histList.removeAt(histList.size - 1)
             _realTradeHistory.value = histList
             addLog("Contract ID $contractId finished: ${status.uppercase()}. Profit/Loss: $${String.format("%.2f", profit)} (Exit digit: $exitDigit)", "INFO")
+            
+            val isWin = status.uppercase() == "WON"
+            _tradeFeedbackFlow.value = TradeFeedback(
+                isError = false,
+                isWin = isWin,
+                title = if (isWin) "Trade Settled: WIN! 🏆" else "Trade Settled: LOSS ⚠️",
+                message = "Contract ID $contractId on $underlying ($contractType) resolved as ${status.uppercase()}.\n" +
+                          "Initial Stake: $$buyPrice | Profit/Loss: $${String.format("%.2f", profit)}\n" +
+                          "Exit Digit: ${exitDigit ?: "unknown"}",
+                rawDetails = "Contract ID: $contractId\nStatus: $status\nProfit/Loss: $profit\nExit Digit: $exitDigit\nSymbol: $underlying\nContract Type: $contractType"
+            )
         } else {
             val activeList = _activeContracts.value.toMutableList()
             val index = activeList.indexOfFirst { it.contractId == contractId }
@@ -897,14 +946,19 @@ class DerivWebSocketManager {
     }
 
     fun sendBuyRequest(symbol: String, contractType: String, barrier: String, stake: Double, durationTicks: Int = 2) {
-        val mappedContractType = when (contractType.uppercase()) {
+        val mappedContractType = when (contractType.uppercase().trim()) {
             "EVEN", "DIGITEVEN" -> "DIGITEVEN"
             "ODD", "DIGITODD" -> "DIGITODD"
             "OVER", "DIGITOVER" -> "DIGITOVER"
             "UNDER", "DIGITUNDER" -> "DIGITUNDER"
             "DIFFERS", "DIGITDIFF" -> "DIGITDIFF"
             "MATCHES", "DIGITMATCH" -> "DIGITMATCH"
-            else -> contractType
+            "RISE", "CALL" -> "CALL"
+            "FALL", "PUT" -> "PUT"
+            "ACCUMULATORS", "ACCUMULATOR", "ACCU" -> "ACCU"
+            "ASIANS_UP", "ASIAN_UP", "ASIANU" -> "ASIANU"
+            "ASIANS_DOWN", "ASIAN_DOWN", "ASIAND" -> "ASIAND"
+            else -> contractType.uppercase().trim()
         }
         addLog("Transmitting Buy parameter proposal contract: $mappedContractType on $symbol (barrier: $barrier, stake: $$stake, duration: $durationTicks t)", "OUTBOUND")
         val ws = webSocket
@@ -918,17 +972,33 @@ class DerivWebSocketManager {
                         put("basis", "stake")
                         put("contract_type", mappedContractType)
                         put("currency", "USD")
-                        put("duration", durationTicks)
-                        put("duration_unit", "t")
+                        
+                        if (mappedContractType != "ACCU") {
+                            put("duration", durationTicks)
+                            put("duration_unit", "t")
+                        }
+                        
                         if (isUsingNewApi) {
                             put("underlying_symbol", symbol)
                         } else {
                             put("symbol", symbol)
                         }
+                        
                         if (mappedContractType == "DIGITOVER" || mappedContractType == "DIGITUNDER" || mappedContractType == "DIGITDIFF" || mappedContractType == "DIGITMATCH") {
                             // Extract absolute digit (0-9) for standard digit barrier
                             val cleanBarrier = barrier.filter { it.isDigit() }
                             put("barrier", if (cleanBarrier.isNotEmpty()) cleanBarrier else "5")
+                        } else if (mappedContractType == "ACCU") {
+                            // Accumulator requires growth_rate (0.01 to 0.05). Map 1-5 to respective rates.
+                            val rate = when (barrier.filter { it.isDigit() }) {
+                                "1" -> 0.01
+                                "2" -> 0.02
+                                "3" -> 0.03
+                                "4" -> 0.04
+                                "5" -> 0.05
+                                else -> 0.01
+                            }
+                            put("growth_rate", rate)
                         }
                     }
                     put("parameters", params)

@@ -164,6 +164,12 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
     val authorizedCurrency: StateFlow<String?> = wsManager.authorizedCurrency
     val authorizedUserId: StateFlow<String?> = wsManager.authorizedUserId
 
+    val tradeFeedback: StateFlow<com.example.data.DerivWebSocketManager.TradeFeedback?> = wsManager.tradeFeedbackFlow
+
+    fun dismissTradeFeedback() {
+        wsManager.dismissTradeFeedback()
+    }
+
     private val _tokenValidationMessage = MutableStateFlow<String?>(null)
     val tokenValidationMessage: StateFlow<String?> = _tokenValidationMessage.asStateFlow()
 
@@ -345,10 +351,19 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
             wsManager.authorizedBalance.collect { balance ->
                 if (balance != null) {
                     val current = _userSettings.value
-                    if (current.isDemoAccount && (current.demoWalletBalance != balance || current.derivWalletBalance != balance)) {
-                        repository.saveSettings(current.copy(demoWalletBalance = balance, derivWalletBalance = balance))
-                    } else if (!current.isDemoAccount && (current.realWalletBalance != balance || current.derivWalletBalance != balance)) {
-                        repository.saveSettings(current.copy(realWalletBalance = balance, derivWalletBalance = balance))
+                    val isSocketVirtual = wsManager.authorizedIsVirtual.value ?: current.isDemoAccount
+                    if (isSocketVirtual) {
+                        if (current.demoWalletBalance != balance || current.derivWalletBalance != balance) {
+                            val updated = current.copy(demoWalletBalance = balance, derivWalletBalance = balance)
+                            repository.saveSettings(updated)
+                            _userSettings.value = updated
+                        }
+                    } else {
+                        if (current.realWalletBalance != balance || current.derivWalletBalance != balance) {
+                            val updated = current.copy(realWalletBalance = balance, derivWalletBalance = balance)
+                            repository.saveSettings(updated)
+                            _userSettings.value = updated
+                        }
                     }
                 }
             }
@@ -359,13 +374,15 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
             wsManager.authorizedIsVirtual.collect { isVirtual ->
                 if (isVirtual != null) {
                     val current = _userSettings.value
-                    if (current.isDemoAccount != isVirtual) {
-                        val updated = current.copy(
-                            isDemoAccount = isVirtual,
-                            derivWalletBalance = if (isVirtual) current.demoWalletBalance else current.realWalletBalance
-                        )
-                        repository.saveSettings(updated)
-                        _userSettings.value = updated
+                    if (isVirtual == wsManager.preferDemo) {
+                        if (current.isDemoAccount != isVirtual) {
+                            val updated = current.copy(
+                                isDemoAccount = isVirtual,
+                                derivWalletBalance = if (isVirtual) current.demoWalletBalance else current.realWalletBalance
+                            )
+                            repository.saveSettings(updated)
+                            _userSettings.value = updated
+                        }
                     }
                 }
             }
@@ -378,6 +395,24 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                     val current = _userSettings.value
                     if (current.traderName != name) {
                         repository.saveSettings(current.copy(traderName = name))
+                    }
+                }
+            }
+        }
+
+        // Sync latest websocket logs to local DB settings under explicit trade_logs field
+        viewModelScope.launch {
+            wsManager.liveLogs.collect { logs ->
+                if (logs.isNotEmpty()) {
+                    val latestLogs = logs.takeLast(15).joinToString("\n") { log ->
+                        val date = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date(log.timestamp))
+                        "[$date] [${log.type}] ${log.message}"
+                    }
+                    val current = _userSettings.value
+                    if (current.tradeLogs != latestLogs) {
+                        val updated = current.copy(tradeLogs = latestLogs)
+                        repository.saveSettings(updated)
+                        _userSettings.value = updated
                     }
                 }
             }
@@ -1821,8 +1856,17 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                     isDemoAccount = nextDemoMode,
                     derivWalletBalance = if (nextDemoMode) currentSettings.demoWalletBalance else currentSettings.realWalletBalance
                 )
+                
+                // Explicitly set preferred mode first to prevent race condition
+                wsManager.preferDemo = nextDemoMode
+                
                 repository.saveSettings(updatedSettings)
                 _userSettings.value = updatedSettings
+                
+                // Trigger dynamic swap on secure WebSocket
+                if (updatedSettings.derivToken.isNotEmpty()) {
+                    wsManager.sendAuthorizeRequest(updatedSettings.derivToken)
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             }

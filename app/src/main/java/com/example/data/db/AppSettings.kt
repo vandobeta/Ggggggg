@@ -46,6 +46,15 @@ data class AppSettings(
     val isDemoAccount: Boolean = true,
     val demoWalletBalance: Double = 10000.0,
     val realWalletBalance: Double = 100.0,
-    val derivAppId: String = "1089",
-    val sessionsPerDay: Int = 3
+    val derivAppId: String = "33sKaNullz3jmWQs7OXxZ",
+    val sessionsPerDay: Int = 3,
+    
+    // Explicit requested settings table fields
+    val currentAccountType: String = "demo", // "demo" or "real"
+    val stake: Double = 5.0,
+    val tradeLogs: String = "",
+    val patToken: String = "",
+    val autoTraderStatus: Int = 0, // 1 for on, 0 for off
+    val maxSignalsPerDay: Int = 50,
+    val tradeSessionsPerDay: Int = 3
 )

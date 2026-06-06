@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -1174,6 +1175,48 @@ fun SettingsScreen(
                         }
                     }
 
+                    // Account Type Segmented Selector
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("ACCOUNT SERVERS ENVIRONMENT", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text("Connect to demo virtual or real capital servers", color = Color.Gray, fontSize = 9.sp)
+                        }
+                        
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color.White.copy(alpha = 0.05f))
+                                .padding(2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            listOf("demo", "real").forEach { type ->
+                                val sel = userSettings.currentAccountType.lowercase().trim() == type
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (sel) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                        .clickable {
+                                            viewModel.updateSettingsInDb(userSettings.copy(currentAccountType = type, isDemoAccount = (type == "demo")))
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = type.uppercase(),
+                                        color = if (sel) Color.Black else Color.Gray,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Black,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     // Secure Deriv Token Input
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("DERIV SECURE WS TOKEN", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -1207,7 +1250,7 @@ fun SettingsScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("deriv_appid_input"),
-                            placeholder = { Text("Default App ID: 1089", color = Color.Gray, fontSize = 12.sp) },
+                            placeholder = { Text("Default App ID: 33sKaNullz3jmWQs7OXxZ", color = Color.Gray, fontSize = 12.sp) },
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = Color.White,
@@ -1289,30 +1332,59 @@ fun SettingsScreen(
                         )
                     }
 
-                    // Target Stake Input
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("TARGET COMPANION STAKE (USD)", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        OutlinedTextField(
-                            value = if (userSettings.autoTraderCompoundingStake) String.format("%.2f", recStake) else userSettings.autoTraderStake.toString(),
-                            onValueChange = {
-                                if (!userSettings.autoTraderCompoundingStake) {
-                                    it.toDoubleOrNull()?.let { stake ->
-                                        viewModel.updateSettingsInDb(userSettings.copy(autoTraderStake = stake))
+                    // Dual-Stake Configuration (Manual & Automated Pilot)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Default Manual Stake Field
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("DEFAULT MANUAL STAKE (USD)", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            OutlinedTextField(
+                                value = userSettings.stake.toString(),
+                                onValueChange = {
+                                    it.toDoubleOrNull()?.let { st ->
+                                        viewModel.updateSettingsInDb(userSettings.copy(stake = st))
                                     }
-                                }
-                            },
-                            enabled = !userSettings.autoTraderCompoundingStake,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("auto_trader_stake_input"),
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White,
-                                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = Color.White.copy(alpha = 0.15f)
+                                },
+                                modifier = Modifier.fillMaxWidth().testTag("default_manual_stake_input"),
+                                singleLine = true,
+                                textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 12.sp, fontFamily = FontFamily.Monospace),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White,
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBorderColor = Color.White.copy(alpha = 0.15f)
+                                )
                             )
-                        )
+                        }
+
+                        // Target Companion Stake (USD)
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("TARGET PILOT STAKE (USD)", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            OutlinedTextField(
+                                value = if (userSettings.autoTraderCompoundingStake) String.format("%.2f", recStake) else userSettings.autoTraderStake.toString(),
+                                onValueChange = {
+                                    if (!userSettings.autoTraderCompoundingStake) {
+                                        it.toDoubleOrNull()?.let { stake ->
+                                            viewModel.updateSettingsInDb(userSettings.copy(autoTraderStake = stake))
+                                        }
+                                    }
+                                },
+                                enabled = !userSettings.autoTraderCompoundingStake,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("auto_trader_stake_input"),
+                                singleLine = true,
+                                textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 12.sp, fontFamily = FontFamily.Monospace),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White,
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBorderColor = Color.White.copy(alpha = 0.15f)
+                                )
+                            )
+                        }
                     }
 
                     Row(
