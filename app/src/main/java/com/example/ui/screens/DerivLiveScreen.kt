@@ -54,6 +54,21 @@ fun DerivLiveScreen(
     val timeFormatter = remember { SimpleDateFormat("HH:mm:ss.SSS", Locale.US) }
     var activeTab by remember { mutableStateOf("CONTRACTS") } // "CONTRACTS", "STATEMENT_LOGS", "HISTORY"
 
+    var manualTradingExpanded by remember { mutableStateOf(false) }
+    var selectedSymbolCode by remember { mutableStateOf("1HZ100V") }
+    val brokerSymbols = remember {
+        listOf(
+            "1HZ10V" to "V10 (1s)",
+            "1HZ25V" to "V25 (1s)",
+            "1HZ50V" to "V50 (1s)",
+            "1HZ75V" to "V75 (1s)",
+            "1HZ100V" to "V100 (1s)"
+        )
+    }
+    var selectedContractType by remember { mutableStateOf("UNDER") } // "UNDER" or "OVER"
+    var selectedBarrierVal by remember { mutableStateOf(5) } // 1..8
+    var selectedStakeVal by remember { mutableStateOf(5.0) } // Stake value
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -233,6 +248,326 @@ fun DerivLiveScreen(
                             )
                     ) {
                         Text("USE REAL ACCOUNT", fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                    }
+                }
+            }
+        }
+
+        // ================= DIRECT MANUAL TRADING PANEL =================
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF101014)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(
+                    width = 1.dp,
+                    color = if (manualTradingExpanded) Color(0xFFFBBF24).copy(alpha = 0.5f) else Color.White.copy(alpha = 0.05f),
+                    shape = RoundedCornerShape(12.dp)
+                )
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                // Header Row (Clickable to toggle expand/collapse)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { manualTradingExpanded = !manualTradingExpanded }
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "⚡",
+                            fontSize = 14.sp
+                        )
+                        Column {
+                            Text(
+                                text = "BROKER DIRECT TRANSACTION COCKPIT",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                text = if (manualTradingExpanded) "Live trade parameters specification" else "Tap here to expand custom trade placement panel",
+                                color = Color.Gray,
+                                fontSize = 8.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                    
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.04f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (manualTradingExpanded) "▲" else "▼",
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+                
+                if (manualTradingExpanded) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                    Spacer(modifier = Modifier.height(10.dp))
+                    
+                    // Symbol Picker
+                    Text(
+                        text = "1. CHOOSE ACTIVE BROKER SYMBOL INDEX",
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        brokerSymbols.forEach { (code, label) ->
+                            val isSelected = selectedSymbolCode == code
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isSelected) Color(0xFFFBBF24).copy(alpha = 0.15f) else Color.White.copy(alpha = 0.02f))
+                                    .border(
+                                        width = 0.8.dp,
+                                        color = if (isSelected) Color(0xFFFBBF24) else Color.White.copy(alpha = 0.05f),
+                                        shape = RoundedCornerShape(6.dp)
+                                    )
+                                    .clickable { 
+                                        selectedSymbolCode = code 
+                                        viewModel.selectSymbol(code)
+                                    }
+                                    .padding(vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    color = if (isSelected) Color(0xFFFBBF24) else Color.LightGray,
+                                    fontSize = 8.5.sp,
+                                    fontWeight = if (isSelected) FontWeight.Black else FontWeight.Medium,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    // Contract Direction
+                    Text(
+                        text = "2. SPECIFY CONTRACT DIRECTION SPEC",
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (selectedContractType == "UNDER") Color(0xFFEF4444).copy(alpha = 0.12f) else Color.White.copy(alpha = 0.02f))
+                                .border(
+                                    width = 1.dp,
+                                    color = if (selectedContractType == "UNDER") Color(0xFFEF4444) else Color.Transparent,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .clickable { selectedContractType = "UNDER" }
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "UNDER (EXT < BARRIER)",
+                                color = if (selectedContractType == "UNDER") Color(0xFFEF4444) else Color.Gray,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                        
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (selectedContractType == "OVER") Color(0xFF10B981).copy(alpha = 0.12f) else Color.White.copy(alpha = 0.02f))
+                                .border(
+                                    width = 1.dp,
+                                    color = if (selectedContractType == "OVER") Color(0xFF10B981) else Color.Transparent,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .clickable { selectedContractType = "OVER" }
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "OVER (EXT > BARRIER)",
+                                color = if (selectedContractType == "OVER") Color(0xFF10B981) else Color.Gray,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    // Barrier Slider circles
+                    Text(
+                        text = "3. CHOOSE INTEGRAL TARGET BARRIER",
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        for (bar in 1..8) {
+                            val isSelected = selectedBarrierVal == bar
+                            val circleColor = if (selectedContractType == "UNDER") Color(0xFFEF4444) else Color(0xFF10B981)
+                            
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isSelected) circleColor.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.02f))
+                                    .border(
+                                        width = 1.dp,
+                                        color = if (isSelected) circleColor else Color.White.copy(alpha = 0.05f),
+                                        shape = CircleShape
+                                    )
+                                    .clickable { selectedBarrierVal = bar }
+                                    .padding(4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = bar.toString(),
+                                    color = if (isSelected) circleColor else Color.LightGray,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Black,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    // Stake Limit config
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "4. CAPITAL STAKE CONFIGURATION",
+                                color = Color.White.copy(alpha = 0.6f),
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                text = "Deductible leverage limit rules apply",
+                                color = Color.DarkGray,
+                                fontSize = 7.5.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                        
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color.White.copy(alpha = 0.04f))
+                                    .clickable { selectedStakeVal = (selectedStakeVal - 1.0).coerceAtLeast(1.0) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("-", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                            }
+                            
+                            Text(
+                                text = String.format(Locale.US, "$%.1f", selectedStakeVal),
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            
+                            Box(
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color.White.copy(alpha = 0.04f))
+                                    .clickable { selectedStakeVal = (selectedStakeVal + 1.0).coerceAtMost(100.0) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("+", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                            }
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(14.dp))
+                    
+                    Button(
+                        onClick = {
+                            val activeSymName = when (selectedSymbolCode) {
+                                "1HZ10V" -> "Volatility 10 (1s) Index"
+                                "1HZ25V" -> "Volatility 25 (1s) Index"
+                                "1HZ50V" -> "Volatility 50 (1s) Index"
+                                "1HZ75V" -> "Volatility 75 (1s) Index"
+                                "1HZ100V" -> "Volatility 100 (1s) Index"
+                                else -> "Volatility 100 (1s) Index"
+                            }
+                            viewModel.executeManualTrade(
+                                symbolCode = selectedSymbolCode,
+                                displayName = activeSymName,
+                                contractType = selectedContractType,
+                                barrier = selectedBarrierVal,
+                                stake = selectedStakeVal
+                            )
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (selectedContractType == "UNDER") Color(0xFFEF4444) else Color(0xFF10B981),
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(40.dp)
+                    ) {
+                        Text(
+                            text = "EXECUTE DIRECT ${selectedContractType} ${selectedBarrierVal} BROKER CONTRACT",
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Black,
+                            fontFamily = FontFamily.Monospace
+                        )
                     }
                 }
             }

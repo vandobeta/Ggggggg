@@ -31,6 +31,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.CompleteDataPacket
+import com.example.ui.theme.getDigitColor
+import com.example.ui.theme.getQuadrantColor
 import com.example.data.LivePredictionModel
 import com.example.ui.viewmodel.DigitAnalysisViewModel
 import java.util.Locale
@@ -415,11 +417,12 @@ fun PredictionsScreen(
                                         modifier = Modifier.fillMaxWidth(),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
+                                        val digitColor = getDigitColor(digit)
                                         Text(
                                             text = "D$digit",
-                                            color = if (isTarget) Color(0xFFFBBF24) else Color.White.copy(alpha = 0.6f),
+                                            color = digitColor,
                                             fontSize = 11.sp,
-                                            fontWeight = if (isTarget) FontWeight.ExtraBold else FontWeight.Normal,
+                                            fontWeight = if (isTarget) FontWeight.ExtraBold else FontWeight.Bold,
                                             fontFamily = FontFamily.Monospace,
                                             modifier = Modifier.width(28.dp)
                                         )
@@ -437,10 +440,9 @@ fun PredictionsScreen(
                                                     .fillMaxWidth(barWidthAlpha.coerceAtMost(1f))
                                                     .background(
                                                         if (isTarget) {
-                                                            Brush.horizontalGradient(listOf(Color(0xFFFBBF24), Color(0xFFF59E0B)))
+                                                            Brush.horizontalGradient(listOf(digitColor, Color(0xFFFBBF24)))
                                                         } else {
-                                                            val baseColor = if (digit % 2 == 0) Color(0xFF3B82F6) else Color(0xFFF43F5E)
-                                                            Brush.horizontalGradient(listOf(baseColor.copy(alpha = 0.5f), baseColor))
+                                                            Brush.horizontalGradient(listOf(digitColor.copy(alpha = 0.5f), digitColor))
                                                         }
                                                     )
                                             )

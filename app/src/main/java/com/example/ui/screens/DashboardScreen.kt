@@ -1,7 +1,7 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -37,6 +37,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.CompleteDataPacket
 import com.example.data.MarketScanResult
+import com.example.ui.theme.getDigitColor
+import com.example.ui.theme.getQuadrantColor
 import com.example.ui.viewmodel.DigitAnalysisViewModel
 import java.util.Locale
 
@@ -644,6 +646,15 @@ fun DetailedPacketPanel(
             fontFamily = FontFamily.Monospace
         )
 
+        // CENTRAL RADAR DIAL TRANSITION POINTER POINTS TO "NEXT POSSIBLE QUADRANT"
+        val targetQuadrant = packet.predictionsList.firstOrNull()?.quadrant ?: "LOWER EVEN"
+
+        // Define delicate flags: if quadrant matches top target, or contains high density predictions over threshold
+        val isLoGlowing = (targetQuadrant == "LOWER ODD") || packet.predictionsList.any { it.quadrant == "LOWER ODD" && it.confidence >= 35f }
+        val isLeGlowing = (targetQuadrant == "LOWER EVEN") || packet.predictionsList.any { it.quadrant == "LOWER EVEN" && it.confidence >= 35f }
+        val isHoGlowing = (targetQuadrant == "HIGHER ODD") || packet.predictionsList.any { it.quadrant == "HIGHER ODD" && it.confidence >= 35f }
+        val isHeGlowing = (targetQuadrant == "HIGHER EVEN") || packet.predictionsList.any { it.quadrant == "HIGHER EVEN" && it.confidence >= 35f }
+
         Box(
             modifier = Modifier.fillMaxWidth(),
             contentAlignment = Alignment.Center
@@ -662,7 +673,8 @@ fun DetailedPacketPanel(
                         digits = listOf(1, 3),
                         pct = packet.quadWeights["LO"] ?: 0f,
                         breakdowns = packet.digitBreakdowns,
-                        packetHistorySize = packet.tickHistory.size
+                        packetHistorySize = packet.tickHistory.size,
+                        isGlowing = isLoGlowing
                     )
 
                     QuadrantCard(
@@ -670,7 +682,8 @@ fun DetailedPacketPanel(
                         digits = listOf(5, 7, 9),
                         pct = packet.quadWeights["HO"] ?: 0f,
                         breakdowns = packet.digitBreakdowns,
-                        packetHistorySize = packet.tickHistory.size
+                        packetHistorySize = packet.tickHistory.size,
+                        isGlowing = isHoGlowing
                     )
                 }
 
@@ -684,7 +697,8 @@ fun DetailedPacketPanel(
                         digits = listOf(0, 2, 4),
                         pct = packet.quadWeights["LE"] ?: 0f,
                         breakdowns = packet.digitBreakdowns,
-                        packetHistorySize = packet.tickHistory.size
+                        packetHistorySize = packet.tickHistory.size,
+                        isGlowing = isLeGlowing
                     )
 
                     QuadrantCard(
@@ -692,13 +706,12 @@ fun DetailedPacketPanel(
                         digits = listOf(6, 8),
                         pct = packet.quadWeights["HE"] ?: 0f,
                         breakdowns = packet.digitBreakdowns,
-                        packetHistorySize = packet.tickHistory.size
+                        packetHistorySize = packet.tickHistory.size,
+                        isGlowing = isHeGlowing
                     )
                 }
             }
 
-            // CENTRAL RADAR DIAL TRANSITION POINTER POINTS TO "NEXT POSSIBLE QUADRANT"
-            val targetQuadrant = packet.predictionsList.firstOrNull()?.quadrant ?: "LOWER EVEN"
             val targetAngle = when (targetQuadrant) {
                 "LOWER ODD" -> -135f   // Top-Left
                 "HIGHER ODD" -> 135f   // Bottom-Left
@@ -753,52 +766,73 @@ fun DetailedPacketPanel(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color.White.copy(alpha = 0.03f))
-                .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(8.dp))
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFF0F1216))
+                .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(12.dp))
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "TICK SAMPLER:",
-                color = Color.LightGray,
-                fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold
-            )
+            Column(modifier = Modifier.width(90.dp)) {
+                Text(
+                    text = "TICK FLOW",
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Black
+                )
+                Text(
+                    text = "SLIDING STREAM",
+                    color = Color.Gray,
+                    fontSize = 8.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Medium
+                )
+            }
             Spacer(modifier = Modifier.width(8.dp))
             Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val lastTen = packet.tickHistory.takeLast(11)
-                lastTen.forEach { t ->
-                    val color = if (t % 2 == 0) Color(0xFF38BDF8) else Color(0xFFF43F5E)
+                val fullList = packet.tickHistory
+                val countToShow = 11
+                val offsetList = fullList.takeLast(countToShow)
+                
+                offsetList.forEachIndexed { idx, t ->
+                    val stepsFromNewest = (offsetList.size - 1) - idx
+                    val tailOpacity = (1.0f - (stepsFromNewest * 0.08f)).coerceIn(0.25f, 1.0f)
+                    val bubbleSize = (26f - (stepsFromNewest * 0.8f)).coerceAtLeast(16f).dp
+                    val fontSize = (11f - (stepsFromNewest * 0.3f)).coerceAtLeast(8f).sp
+                    val borderThickness = if (stepsFromNewest == 0) 1.5.dp else 0.8.dp
+                    
+                    val digitColor = getDigitColor(t)
+                    
                     Box(
                         modifier = Modifier
-                            .size(18.dp)
+                            .size(bubbleSize)
                             .clip(CircleShape)
-                            .background(color.copy(alpha = 0.15f))
-                            .border(1.dp, color, CircleShape),
+                            .background(digitColor.copy(alpha = 0.1f * tailOpacity))
+                            .border(borderThickness, digitColor.copy(alpha = tailOpacity), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = t.toString(),
-                            color = color,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.ExtraBold,
+                            color = digitColor.copy(alpha = tailOpacity),
+                            fontSize = fontSize,
+                            fontWeight = if (stepsFromNewest == 0) FontWeight.Black else FontWeight.Bold,
                             fontFamily = FontFamily.Monospace
                         )
                     }
                 }
+                
                 if (packet.tickHistory.size < 100) {
                     Spacer(modifier = Modifier.weight(1f))
                     Text(
-                        text = "SAMPLING: ${packet.tickHistory.size}/100",
-                        color = Color(0xFFEAB308),
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace
+                        text = "SYNC:${packet.tickHistory.size}%",
+                        color = Color(0xFFFBBF24),
+                        fontSize = 8.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
@@ -1177,17 +1211,45 @@ fun QuadrantCard(
     digits: List<Int>,
     pct: Float,
     breakdowns: IntArray,
-    packetHistorySize: Int
+    packetHistorySize: Int,
+    isGlowing: Boolean = false
 ) {
     val sizeBase = if (packetHistorySize > 0) packetHistorySize.toFloat() else 100f
     val animatePct by animateFloatAsState(targetValue = pct, animationSpec = tween(500), label = "quadrantPct")
+    val quadColor = getQuadrantColor(title)
+
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val glowAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.04f,
+        targetValue = 0.18f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glowPulse"
+    )
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFF121216))
-            .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(16.dp))
+            .background(Color(0xFF101014))
+            .drawBehind {
+                if (isGlowing) {
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(quadColor.copy(alpha = glowAlpha), Color.Transparent),
+                            center = center,
+                            radius = size.width * 0.8f
+                        )
+                    )
+                }
+            }
+            .border(
+                width = if (isGlowing) 2.dp else 1.dp,
+                color = if (isGlowing) quadColor.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.05f),
+                shape = RoundedCornerShape(16.dp)
+            )
             .padding(14.dp)
     ) {
         Column(
@@ -1198,18 +1260,31 @@ fun QuadrantCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = title,
-                    color = Color.White,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Black,
-                    fontFamily = FontFamily.Monospace,
-                    letterSpacing = 0.5.sp
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (isGlowing) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(quadColor)
+                        )
+                    }
+                    Text(
+                        text = title,
+                        color = if (isGlowing) quadColor else Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        fontFamily = FontFamily.Monospace,
+                        letterSpacing = 0.5.sp
+                    )
+                }
 
                 Text(
                     text = String.format(Locale.US, "%.1f%%", pct),
-                    color = if (pct >= 35f) Color(0xFFEF4444) else if (pct <= 15f) Color(0xFF10B981) else Color.White.copy(alpha = 0.7f),
+                    color = if (isGlowing) quadColor else if (pct >= 35f) Color(0xFFEF4444) else if (pct <= 15f) Color(0xFF10B981) else Color.White.copy(alpha = 0.7f),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.ExtraBold,
                     fontFamily = FontFamily.Monospace
@@ -1222,7 +1297,7 @@ fun QuadrantCard(
                     .fillMaxWidth()
                     .height(3.dp)
                     .clip(CircleShape),
-                color = if (pct >= 35f) Color(0xFFEF4444) else if (pct <= 15f) Color(0xFF10B981) else Color(0xFF2563EB),
+                color = if (isGlowing) quadColor else if (pct >= 35f) Color(0xFFEF4444) else if (pct <= 15f) Color(0xFF10B981) else Color(0xFF2563EB),
                 trackColor = Color.White.copy(alpha = 0.02f)
             )
 
@@ -1234,12 +1309,7 @@ fun QuadrantCard(
                 digits.forEach { d ->
                     val dCount = breakdowns[d]
                     val dPct = (dCount.toFloat() / sizeBase) * 100f
-
-                    val color = when {
-                        dPct >= 13f -> Color(0xFFF43F5E)
-                        dPct <= 7f -> Color(0xFF10B981)
-                        else -> Color(0xFF38BDF8)
-                    }
+                    val digitColor = getDigitColor(d)
 
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1249,17 +1319,17 @@ fun QuadrantCard(
                             modifier = Modifier
                                 .size(34.dp)
                                 .clip(CircleShape)
-                                .background(color.copy(alpha = 0.12f))
+                                .background(digitColor.copy(alpha = 0.12f))
                                 .border(
                                     width = 1.5.dp,
-                                    color = color,
+                                    color = digitColor,
                                     shape = CircleShape
                                 ),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = d.toString(),
-                                color = color,
+                                color = digitColor,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Black,
                                 fontFamily = FontFamily.Monospace

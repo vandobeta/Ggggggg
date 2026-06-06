@@ -1874,6 +1874,16 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                 synchronized(activePendingTrades) {
                     activePendingTrades.add(freshManualTrade.copy(id = dbId))
                 }
+
+                if (settings.derivToken.isNotEmpty()) {
+                    wsManager.sendBuyRequest(
+                        symbol = symbolCode,
+                        contractType = contractType,
+                        barrier = barrier.toString(),
+                        stake = stake,
+                        durationTicks = settings.virtualTradeCloseTicks
+                    )
+                }
                 
                 triggerDoubleVibration()
             } catch (e: Exception) {

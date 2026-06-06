@@ -34,6 +34,8 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.viewmodel.DigitAnalysisViewModel
+import com.example.ui.theme.getDigitColor
+import com.example.ui.theme.getQuadrantColor
 
 @Composable
 fun SignalsScreen(
@@ -1753,13 +1755,39 @@ fun SignalsScreen(
                                                 fontSize = 8.sp,
                                                 fontFamily = FontFamily.Monospace
                                             )
-                                            Text(
-                                                text = "${trade.entryDigit} ➔ ${if (trade.status == "PENDING") "?" else trade.exitDigit}",
-                                                color = Color.White,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                fontFamily = FontFamily.Monospace
-                                            )
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    text = trade.entryDigit.toString(),
+                                                    color = getDigitColor(trade.entryDigit),
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                                Text(
+                                                    text = " ➔ ",
+                                                    color = Color.Gray.copy(alpha = 0.5f),
+                                                    fontSize = 10.sp,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                                if (trade.status == "PENDING") {
+                                                    Text(
+                                                        text = "?",
+                                                        color = Color.White.copy(alpha = 0.5f),
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontFamily = FontFamily.Monospace
+                                                    )
+                                                } else {
+                                                    val exitVal = trade.exitDigit ?: 0
+                                                    Text(
+                                                        text = exitVal.toString(),
+                                                        color = getDigitColor(exitVal),
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.ExtraBold,
+                                                        fontFamily = FontFamily.Monospace
+                                                    )
+                                                }
+                                            }
                                         }
 
                                         Column(horizontalAlignment = Alignment.End) {

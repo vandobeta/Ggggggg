@@ -21,7 +21,37 @@ val CosmicBackground = Color(0xFF0B0F13)
 val CosmicSurface = Color(0xFF11171E)
 
 // Sunrise Theme palette
-val SunrisePrimary = Color(0xFFFF9800)
-val SunriseSecondary = Color(0xFFF57C00)
-val SunriseBackground = Color(0xFF1E0E00)
-val SunriseSurface = Color(0xFF361C02)
+val SunrisePrimary = Color(0xFFF59E0B)
+val SunriseSecondary = Color(0xFFD97706)
+val SunriseBackground = Color(0xFF1E1B10)
+val SunriseSurface = Color(0xFF2E2616)
+
+// Comic Indigo/Sunrise etc...
+
+// Quadrant Colors
+val ColorLowerOdd = Color(0xFF8B5CF6)    // Purple / Indigo
+val ColorLowerEven = Color(0xFFFBBF24)   // Amber / Golden
+val ColorHigherOdd = Color(0xFFF43F5E)   // Rose / Pink
+val ColorHigherEven = Color(0xFF06B6D4)  // Cyan / Sky Blue
+
+fun getDigitColor(digit: Int): Color {
+    return when (digit) {
+        1, 3 -> ColorLowerOdd
+        0, 2, 4 -> ColorLowerEven
+        5, 7, 9 -> ColorHigherOdd
+        6, 8 -> ColorHigherEven
+        else -> Color.Gray
+    }
+}
+
+fun getQuadrantColor(quadrant: String): Color {
+    val q = quadrant.uppercase().trim()
+    return when {
+        q.contains("LOWER ODD") || q == "LO" -> ColorLowerOdd
+        q.contains("LOWER EVEN") || q == "LE" -> ColorLowerEven
+        q.contains("HIGHER ODD") || q == "HO" -> ColorHigherOdd
+        q.contains("HIGHER EVEN") || q == "HE" -> ColorHigherEven
+        else -> Color.Gray
+    }
+}
+
