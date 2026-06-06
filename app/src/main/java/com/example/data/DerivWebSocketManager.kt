@@ -42,9 +42,11 @@ class DerivWebSocketManager {
         .readTimeout(10, TimeUnit.SECONDS)
         .writeTimeout(10, TimeUnit.SECONDS)
         .connectTimeout(10, TimeUnit.SECONDS)
+        .pingInterval(15, TimeUnit.SECONDS) // OkHttp automatic ping-pong to maintain robust socket and detect internet dropouts
         .build()
 
     var activeAppId: String = "1089"
+    private var isUsingNewApi = false
 
     fun getClassicWsUrl(): String {
         return "wss://ws.binaryws.com/websockets/v3?app_id=$activeAppId"
@@ -117,6 +119,9 @@ class DerivWebSocketManager {
 
     private val _realTradeHistory = MutableStateFlow<List<WsContract>>(emptyList())
     val realTradeHistory: StateFlow<List<WsContract>> = _realTradeHistory.asStateFlow()
+
+    private val _availableAccounts = MutableStateFlow<List<DerivApiAccount>>(emptyList())
+    val availableAccounts: StateFlow<List<DerivApiAccount>> = _availableAccounts.asStateFlow()
 
     private var logIdCounter = 0L
 
@@ -220,7 +225,22 @@ class DerivWebSocketManager {
         }
     }
 
+    private var isReconnecting = false
+    private fun triggerCheckAutoReconnect() {
+        if (isReconnecting) return
+        isReconnecting = true
+        mainHandler.postDelayed({
+            isReconnecting = false
+            val state = _connectionState.value
+            if (state == "SERVER OFFLINE" || state == "DISCONNECTED") {
+                addLog("Auto-reconnect Agent: Attempting to heal broken connection...", "INFO")
+                connect()
+            }
+        }, 12000)
+    }
+
     private fun connectWebSocketNewUrl(wsUrl: String, account: DerivApiAccount) {
+        isUsingNewApi = true
         synchronized(this) {
             webSocket?.close(1000, "App reconnect to authorized link")
             webSocket = null
@@ -266,6 +286,7 @@ class DerivWebSocketManager {
                 addLog("WebSocket failure: ${t.message}. Reconnect to a working network.", "ERROR")
                 _connectionState.value = "SERVER OFFLINE"
                 this@DerivWebSocketManager.webSocket = null
+                triggerCheckAutoReconnect()
             }
             
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
@@ -294,6 +315,7 @@ class DerivWebSocketManager {
     }
 
     private fun connectLegacy(token: String) {
+        isUsingNewApi = false
         val dynamicWsUrl = getClassicWsUrl()
         addLog("Initializing legacy WebSocket fallback connection to: $dynamicWsUrl", "INFO")
         synchronized(this) {
@@ -339,6 +361,7 @@ class DerivWebSocketManager {
                 _connectionState.value = "SERVER OFFLINE"
                 this@DerivWebSocketManager.webSocket = null
                 addLog("Legacy WebSocket failure: ${t.message}", "ERROR")
+                triggerCheckAutoReconnect()
             }
             
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
@@ -380,6 +403,7 @@ class DerivWebSocketManager {
             
             val responseBody = response.body?.string() ?: ""
             val accounts = parseAccounts(responseBody)
+            _availableAccounts.value = accounts
             if (accounts.isEmpty()) {
                 _connectionState.value = "AUTH_FAILED"
                 _authErrorState.value = "No Options Accounts found for this token."
@@ -458,6 +482,7 @@ class DerivWebSocketManager {
 
         if (webSocket != null) return
 
+        isUsingNewApi = true
         _connectionState.value = "CONNECTING..."
         Log.d(TAG, "Connecting to public Deriv Options WebSocket...")
         val publicUrl = "wss://api.derivws.com/trading/v1/options/ws/public"
@@ -490,6 +515,7 @@ class DerivWebSocketManager {
                 _connectionState.value = "SERVER OFFLINE"
                 this@DerivWebSocketManager.webSocket = null
                 addLog("Public WebSocket socket failure: ${t.message}.", "ERROR")
+                triggerCheckAutoReconnect()
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
@@ -527,13 +553,14 @@ class DerivWebSocketManager {
         pingRunnable = object : Runnable {
             override fun run() {
                 val ws = webSocket
-                if (ws != null && _connectionState.value == "CONNECTED") {
+                val state = _connectionState.value
+                if (ws != null && (state == "CONNECTED" || state == "AUTHORIZED")) {
                     pingSendTime = System.currentTimeMillis()
                     val pingJson = JSONObject().apply {
                         put("ping", 1)
                     }
                     ws.send(pingJson.toString())
-                    mainHandler.postDelayed(this, 3000)
+                    mainHandler.postDelayed(this, 10000) // Optimal latency ping interval of 10 seconds to keep connection alive safely
                 }
             }
         }
@@ -606,8 +633,21 @@ class DerivWebSocketManager {
                 if (buyObj != null) {
                     val contractId = buyObj.optLong("contract_id", -1L)
                     val buyPrice = buyObj.optDouble("buy_price", 0.0)
-                    val symbol = buyObj.optString("underlying", "R_10")
-                    val contractType = buyObj.optString("contract_type", "UNKNOWN")
+                    
+                    // The buy successful response object itself does not contain "underlying" or "contract_type".
+                    // We extract them from the "echo_req" echo parameter payload dynamically to avoid defaulting or mapping incorrectly.
+                    val echoReq = json.optJSONObject("echo_req")
+                    val params = echoReq?.optJSONObject("parameters")
+                    val echoSymbol = params?.optString("underlying_symbol") ?: params?.optString("symbol")
+                    val symbol = buyObj.optString("underlying").takeIf { it.isNotEmpty() }
+                        ?: echoSymbol
+                        ?: "R_10"
+                        
+                    val echoContractType = params?.optString("contract_type")
+                    val contractType = buyObj.optString("contract_type").takeIf { it.isNotEmpty() }
+                        ?: echoContractType
+                        ?: "UNKNOWN"
+
                     val balanceAfter = buyObj.optDouble("balance_after")
                     if (!balanceAfter.isNaN()) {
                         _authorizedBalance.value = balanceAfter
@@ -751,6 +791,32 @@ class DerivWebSocketManager {
         }
     }
 
+    fun fetchAccountsForToken(token: String, onResult: (List<DerivApiAccount>?, String?) -> Unit) {
+        scope.launch(Dispatchers.IO) {
+            val request = Request.Builder()
+                .url("https://api.derivws.com/trading/v1/options/accounts")
+                .addHeader("Deriv-App-ID", activeAppId)
+                .addHeader("Authorization", "Bearer $token")
+                .get()
+                .build()
+            try {
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val responseBody = response.body?.string() ?: ""
+                    val accounts = parseAccounts(responseBody)
+                    _availableAccounts.value = accounts
+                    onResult(accounts, null)
+                } else {
+                    val errorBody = response.body?.string()
+                    val errMsg = parseRestError(errorBody) ?: "HTTP Error ${response.code}"
+                    onResult(null, errMsg)
+                }
+            } catch (e: Exception) {
+                onResult(null, e.message)
+            }
+        }
+    }
+
     fun sendAuthorizeRequest(token: String) {
         pendingAuthorizeToken = token
         _authErrorState.value = null
@@ -854,7 +920,11 @@ class DerivWebSocketManager {
                         put("currency", "USD")
                         put("duration", durationTicks)
                         put("duration_unit", "t")
-                        put("symbol", symbol)
+                        if (isUsingNewApi) {
+                            put("underlying_symbol", symbol)
+                        } else {
+                            put("symbol", symbol)
+                        }
                         if (mappedContractType == "DIGITOVER" || mappedContractType == "DIGITUNDER" || mappedContractType == "DIGITDIFF" || mappedContractType == "DIGITMATCH") {
                             // Extract absolute digit (0-9) for standard digit barrier
                             val cleanBarrier = barrier.filter { it.isDigit() }
@@ -867,6 +937,36 @@ class DerivWebSocketManager {
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending buy request: ${e.message}")
                 addLog("Error transmitting buy contract details: ${e.message}", "ERROR")
+            }
+        }
+    }
+
+    fun resetDemoBalance(token: String, accountId: String, onCompleted: (Boolean, String?) -> Unit) {
+        scope.launch(Dispatchers.IO) {
+            val mediaTypeJson = "application/json; charset=utf-8".toMediaTypeOrNull()
+            val emptyBody = "{}".toRequestBody(mediaTypeJson)
+            val request = Request.Builder()
+                .url("https://api.derivws.com/trading/v1/options/accounts/$accountId/reset-demo-balance")
+                .addHeader("Deriv-App-ID", activeAppId)
+                .addHeader("Authorization", "Bearer $token")
+                .post(emptyBody)
+                .build()
+                
+            try {
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    addLog("REST: Demo balance successfully reset on Deriv broker.", "INFO")
+                    _authorizedBalance.value = 10000.0 // reset to default standard balance
+                    onCompleted(true, null)
+                } else {
+                    val errorBody = response.body?.string()
+                    val errMsg = parseRestError(errorBody) ?: "HTTP Error ${response.code}"
+                    addLog("Reset demo balance failed: $errMsg", "ERROR")
+                    onCompleted(false, errMsg)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error resetting demo balance: ${e.message}")
+                onCompleted(false, e.message)
             }
         }
     }

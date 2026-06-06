@@ -630,7 +630,7 @@ fun SignalsScreen(
                                         Color(0xFFFBBF24)
                                     }
                                     Text(
-                                        text = "${signal.contractType} ${signal.barrier}",
+                                        text = if (signal.contractType == "EVEN" || signal.contractType == "ODD") signal.contractType else "${signal.contractType} ${signal.barrier}",
                                         color = highlightColor,
                                         fontSize = 32.sp,
                                         fontWeight = FontWeight.Black,
@@ -1429,7 +1429,7 @@ fun SignalsScreen(
                                     }
                                     Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                                         Text("HIGH RISK-PRESET ACTION PLAN", color = Color.Gray, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
-                                        Text("$autoType $autoBarrier", color = Color(0xFF34D399), fontSize = 10.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
+                                        Text(if (autoType == "EVEN" || autoType == "ODD") autoType else "$autoType $autoBarrier", color = Color(0xFF34D399), fontSize = 10.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
                                     }
                                     Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                                         Text("TACTICAL CONFIDENCE FACTOR", color = Color.Gray, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
@@ -1738,7 +1738,7 @@ fun SignalsScreen(
                                                 fontFamily = FontFamily.Monospace
                                             )
                                             Text(
-                                                text = "${trade.contractType} ${trade.barrierValue}",
+                                                text = if (trade.contractType == "EVEN" || trade.contractType == "ODD") trade.contractType else "${trade.contractType} ${trade.barrierValue}",
                                                 color = Color.White,
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold,
@@ -1777,7 +1777,7 @@ fun SignalsScreen(
                                                     fontFamily = FontFamily.Monospace
                                                 )
                                                 Text(
-                                                    text = if (trade.status == "PENDING") "[PENDING]" else String.format("%s$%.2f", if (trade.profitLoss >= 0) "+" else "", trade.profitLoss),
+                                                    text = if (trade.status == "PENDING") "PENDING (TICK ${viewModel.tradeTicksRemaining[trade.id] ?: 0}/${userSettings.virtualTradeCloseTicks})" else String.format("%s$%.2f", if (trade.profitLoss >= 0) "+" else "", trade.profitLoss),
                                                     color = when (trade.status) {
                                                         "WIN" -> Color(0xFF10B981)
                                                         "LOSS" -> Color(0xFFEF4444)
@@ -2055,7 +2055,7 @@ fun SignalsScreen(
 
                                         Column(horizontalAlignment = Alignment.End) {
                                             Text(
-                                                text = "${item.contractType} ${item.barrierValue}",
+                                                text = if (item.contractType == "EVEN" || item.contractType == "ODD") item.contractType else "${item.contractType} ${item.barrierValue}",
                                                 color = if (item.contractType == "UNDER") Color(0xFF34D399) else Color(0xFFFBBF24),
                                                 fontSize = 13.sp,
                                                 fontWeight = FontWeight.Black,
@@ -2089,13 +2089,28 @@ fun SignalsScreen(
                                         )
 
                                         Column(horizontalAlignment = Alignment.End) {
-                                            Text(
-                                                text = if (item.exitDigit != null) "Exit: ${item.exitDigit}" else "Awaiting: ${item.ticksObserved} / ${item.targetTicks}",
-                                                color = if (item.exitDigit != null) Color.White else Color.Gray,
-                                                fontSize = 9.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                fontFamily = FontFamily.Monospace
-                                            )
+                                            if (item.exitDigit != null) {
+                                                Text(
+                                                    text = "Exit: ${item.exitDigit}",
+                                                    color = Color.White,
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            } else {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "Awaiting:",
+                                                        color = Color.Gray,
+                                                        fontSize = 8.sp,
+                                                        fontFamily = FontFamily.Monospace
+                                                    )
+                                                    TickDotsProgress(elapsed = item.ticksObserved, total = item.targetTicks)
+                                                }
+                                            }
                                             if (item.observedTicks.isNotEmpty()) {
                                                 Text(
                                                     text = "Path: [${item.observedTicks}]",
@@ -2112,6 +2127,30 @@ fun SignalsScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun TickDotsProgress(elapsed: Int, total: Int) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        val count = total.coerceAtLeast(1)
+        for (i in 1..count) {
+            val isElapsed = i <= elapsed
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(if (isElapsed) Color(0xFF10B981) else Color.White.copy(alpha = 0.2f))
+                    .border(
+                        width = 0.5.dp,
+                        color = if (isElapsed) Color(0xFF6EE7B7) else Color.Transparent,
+                        shape = CircleShape
+                    )
+            )
         }
     }
 }

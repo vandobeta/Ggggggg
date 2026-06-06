@@ -1154,10 +1154,17 @@ fun SettingsScreen(
                                 fontFamily = FontFamily.Monospace
                             )
                         }
+                        val context = androidx.compose.ui.platform.LocalContext.current
                         Button(
                             onClick = {
-                                viewModel.updateSettingsInDb(userSettings.copy(derivWalletBalance = 1000.0))
-                                viewModel.resetAutoTraderSession()
+                                viewModel.resetDemoBalance { success, msg ->
+                                    viewModel.resetAutoTraderSession()
+                                    if (success) {
+                                        android.widget.Toast.makeText(context, "Wallet reset completed: ${msg ?: "Success"}", android.widget.Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        android.widget.Toast.makeText(context, "Demanded balance reset rejected: $msg", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),

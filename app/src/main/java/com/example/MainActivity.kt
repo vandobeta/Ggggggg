@@ -117,59 +117,18 @@ class MainActivity : ComponentActivity() {
                 Row(
                   modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                  horizontalArrangement = Arrangement.SpaceBetween,
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                  horizontalArrangement = Arrangement.Center,
                   verticalAlignment = Alignment.CenterVertically
                 ) {
-                  Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier
-                      .clip(RoundedCornerShape(8.dp))
-                      .background(Color.White.copy(alpha = 0.05f))
-                      .clickable { viewModel.toggleAccountType() }
-                      .border(0.5.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
-                      .padding(horizontal = 10.dp, vertical = 6.dp)
-                  ) {
-                    Box(
-                      modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(if (userSettings.isDemoAccount) Color(0xFF10B981) else Color(0xFFEF4444))
-                    )
-                    Text(
-                      text = if (userSettings.isDemoAccount) "DEMO ACCOUNT" else "REAL ACCOUNT",
-                      color = Color.White,
-                      fontSize = 10.sp,
-                      fontWeight = FontWeight.Bold,
-                      fontFamily = FontFamily.Monospace
-                    )
-                  }
-
-                  Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier
-                      .clip(RoundedCornerShape(8.dp))
-                      .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-                      .border(0.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                      .padding(horizontal = 10.dp, vertical = 6.dp)
-                  ) {
-                    Text(
-                      text = "BALANCE:",
-                      color = Color.Gray,
-                      fontSize = 9.sp,
-                      fontWeight = FontWeight.Bold,
-                      fontFamily = FontFamily.Monospace
-                    )
-                    Text(
-                      text = String.format("$%.2f", if (userSettings.isDemoAccount) userSettings.demoWalletBalance else userSettings.realWalletBalance),
-                      color = MaterialTheme.colorScheme.primary,
-                      fontSize = 11.sp,
-                      fontWeight = FontWeight.Black,
-                      fontFamily = FontFamily.Monospace
-                    )
-                  }
+                  Text(
+                    text = "DERIV ALGORITHMIC RADAR",
+                    color = Color.White.copy(alpha = 0.85f),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = 1.sp
+                  )
                 }
 
                 errorMessage?.let { errorMsg ->
@@ -373,37 +332,163 @@ class MainActivity : ComponentActivity() {
             }
           }
 
-          val validationMessage by viewModel.tokenValidationMessage.collectAsState()
-          validationMessage?.let { msg ->
+          val validationState by viewModel.tokenValidationState.collectAsState()
+          validationState?.let { state ->
             androidx.compose.ui.window.Dialog(
-              onDismissRequest = {}
+              onDismissRequest = { viewModel.dismissTokenValidationState() }
             ) {
               Box(
                 modifier = Modifier
-                  .size(280.dp, 160.dp)
+                  .fillMaxWidth()
+                  .padding(16.dp)
                   .clip(RoundedCornerShape(16.dp))
                   .background(Color(0xFF0F1015))
                   .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
-                  .padding(20.dp),
-                contentAlignment = Alignment.Center
+                  .padding(16.dp)
               ) {
                 Column(
                   verticalArrangement = Arrangement.spacedBy(16.dp),
-                  horizontalAlignment = Alignment.CenterHorizontally
+                  horizontalAlignment = Alignment.CenterHorizontally,
+                  modifier = Modifier.fillMaxWidth()
                 ) {
-                  CircularProgressIndicator(
-                    color = MaterialTheme.colorScheme.primary,
-                    strokeWidth = 3.dp,
-                    modifier = Modifier.size(40.dp)
-                  )
                   Text(
-                    text = msg,
-                    color = Color.White,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
+                    text = "TOKEN VALIDATION ENGINE",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
                     fontFamily = FontFamily.Monospace,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    letterSpacing = 1.sp
                   )
+
+                  if (state.status == "LOADING") {
+                    CircularProgressIndicator(
+                      color = MaterialTheme.colorScheme.primary,
+                      strokeWidth = 3.dp,
+                      modifier = Modifier.size(40.dp)
+                    )
+                    Text(
+                      text = state.message,
+                      color = Color.White,
+                      fontSize = 11.sp,
+                      fontWeight = FontWeight.Bold,
+                      fontFamily = FontFamily.Monospace,
+                      textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                  } else if (state.status == "CHOOSE_ACCOUNT") {
+                    Text(
+                      text = "We found ${state.accounts.size} available Options profile(s). Choose one to authenticate your secure session:",
+                      color = Color.Gray,
+                      fontSize = 10.sp,
+                      fontWeight = FontWeight.Normal,
+                      fontFamily = FontFamily.Monospace,
+                      textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    
+                    Column(
+                      verticalArrangement = Arrangement.spacedBy(8.dp),
+                      modifier = Modifier.fillMaxWidth()
+                    ) {
+                      state.accounts.forEach { acc ->
+                        Row(
+                          modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.White.copy(alpha = 0.05f))
+                            .border(0.5.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                            .clickable {
+                              viewModel.chooseAccountAndInitialize(state.token, acc)
+                            }
+                            .padding(10.dp),
+                          horizontalArrangement = Arrangement.SpaceBetween,
+                          verticalAlignment = Alignment.CenterVertically
+                        ) {
+                          Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                              Box(
+                                modifier = Modifier
+                                  .size(6.dp)
+                                  .clip(CircleShape)
+                                  .background(if (acc.accountType == "demo") Color(0xFF10B981) else Color(0xFFEF4444))
+                              )
+                              Text(
+                                text = if (acc.accountType == "demo") "DEMO / VIRTUAL" else "REAL MONEY",
+                                color = if (acc.accountType == "demo") Color(0xFF10B981) else Color(0xFFEF4444),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = FontFamily.Monospace
+                              )
+                            }
+                            Text(
+                              text = acc.accountId,
+                              color = Color.White,
+                              fontSize = 11.sp,
+                              fontWeight = FontWeight.Bold,
+                              fontFamily = FontFamily.Monospace
+                            )
+                            if (acc.name.isNotEmpty()) {
+                              Text(
+                                text = acc.name,
+                                color = Color.LightGray.copy(alpha = 0.6f),
+                                fontSize = 8.5.sp,
+                                fontFamily = FontFamily.Monospace
+                              )
+                            }
+                          }
+                          Text(
+                            text = String.format("%s %.2f", acc.currency, acc.balance),
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Black,
+                            fontFamily = FontFamily.Monospace
+                          )
+                        }
+                      }
+                    }
+                  } else if (state.status == "SUCCESS") {
+                    Text(
+                      text = "🎉 LOGGED IN SUCCESSFULLY!",
+                      color = Color(0xFF10B981),
+                      fontSize = 12.sp,
+                      fontWeight = FontWeight.Black,
+                      fontFamily = FontFamily.Monospace
+                    )
+                    Text(
+                      text = state.message,
+                      color = Color.White,
+                      fontSize = 10.sp,
+                      fontFamily = FontFamily.Monospace,
+                      textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    Button(
+                      onClick = { viewModel.dismissTokenValidationState() },
+                      colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                      modifier = Modifier.fillMaxWidth().height(40.dp)
+                    ) {
+                      Text("START RUNNING RADAR", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                    }
+                  } else if (state.status == "ERROR") {
+                    Text(
+                      text = "🚨 VALIDATION FAILURE",
+                      color = Color(0xFFEF4444),
+                      fontSize = 12.sp,
+                      fontWeight = FontWeight.Black,
+                      fontFamily = FontFamily.Monospace
+                    )
+                    Text(
+                      text = state.message,
+                      color = Color.White,
+                      fontSize = 10.sp,
+                      fontFamily = FontFamily.Monospace,
+                      textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    Button(
+                      onClick = { viewModel.dismissTokenValidationState() },
+                      colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
+                      modifier = Modifier.fillMaxWidth().height(40.dp)
+                    ) {
+                      Text("DISMISS", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                    }
+                  }
                 }
               }
             }

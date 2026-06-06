@@ -103,6 +103,41 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
         _stopLossHit.value = false
     }
 
+    fun resetDemoBalance(onCompleted: (Boolean, String?) -> Unit) {
+        val settings = _userSettings.value
+        val token = settings.derivToken
+        val accountId = wsManager.authorizedUserId.value
+        if (token.isNotEmpty() && !accountId.isNullOrEmpty() && settings.isDemoAccount) {
+            wsManager.resetDemoBalance(token, accountId) { success, errMsg ->
+                if (success) {
+                    viewModelScope.launch {
+                        val current = _userSettings.value
+                        val updated = current.copy(
+                            derivWalletBalance = 10000.0,
+                            demoWalletBalance = 10000.0
+                        )
+                        repository.saveSettings(updated)
+                        _userSettings.value = updated
+                    }
+                }
+                onCompleted(success, errMsg)
+            }
+        } else {
+            // Local reset only if no token/demo account authorized
+            viewModelScope.launch {
+                val current = _userSettings.value
+                val updated = current.copy(
+                    derivWalletBalance = 1000.0,
+                    demoWalletBalance = 10000.0,
+                    realWalletBalance = 100.0
+                )
+                repository.saveSettings(updated)
+                _userSettings.value = updated
+            }
+            onCompleted(true, "Reset locally.")
+        }
+    }
+
     private var signalsJob: Job? = null
 
     // --- PERSISTENT TRIGGERED SIGNALS HISTORY FLOW ---
@@ -131,6 +166,15 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
 
     private val _tokenValidationMessage = MutableStateFlow<String?>(null)
     val tokenValidationMessage: StateFlow<String?> = _tokenValidationMessage.asStateFlow()
+
+    data class TokenValidationState(
+        val status: String = "IDLE", // "IDLE", "LOADING", "CHOOSE_ACCOUNT", "SUCCESS", "ERROR"
+        val message: String = "",
+        val accounts: List<com.example.data.DerivWebSocketManager.DerivApiAccount> = emptyList(),
+        val token: String = ""
+    )
+    private val _tokenValidationState = MutableStateFlow<TokenValidationState?>(null)
+    val tokenValidationState: StateFlow<TokenValidationState?> = _tokenValidationState.asStateFlow()
 
     fun dismissErrorMessage() {
         _navErrorMessage.value = null
@@ -301,10 +345,10 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
             wsManager.authorizedBalance.collect { balance ->
                 if (balance != null) {
                     val current = _userSettings.value
-                    if (current.isDemoAccount && current.demoWalletBalance != balance) {
-                        repository.saveSettings(current.copy(demoWalletBalance = balance))
-                    } else if (!current.isDemoAccount && current.realWalletBalance != balance) {
-                        repository.saveSettings(current.copy(realWalletBalance = balance))
+                    if (current.isDemoAccount && (current.demoWalletBalance != balance || current.derivWalletBalance != balance)) {
+                        repository.saveSettings(current.copy(demoWalletBalance = balance, derivWalletBalance = balance))
+                    } else if (!current.isDemoAccount && (current.realWalletBalance != balance || current.derivWalletBalance != balance)) {
+                        repository.saveSettings(current.copy(realWalletBalance = balance, derivWalletBalance = balance))
                     }
                 }
             }
@@ -334,6 +378,18 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                     val current = _userSettings.value
                     if (current.traderName != name) {
                         repository.saveSettings(current.copy(traderName = name))
+                    }
+                }
+            }
+        }
+
+        // Sync validated currency from secure WebSocket directly to local DB
+        viewModelScope.launch {
+            wsManager.authorizedCurrency.collect { cur ->
+                if (!cur.isNullOrBlank()) {
+                    val current = _userSettings.value
+                    if (current.currency != cur) {
+                        repository.saveSettings(current.copy(currency = cur))
                     }
                 }
             }
@@ -606,15 +662,39 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
             return
         }
 
-        viewModelScope.launch {
-            _tokenValidationMessage.value = "CONNECTING & VERIFYING API TOKEN..."
-            wsManager.sendAuthorizeRequest(cleanToken)
+        _tokenValidationState.value = TokenValidationState(status = "LOADING", message = "Querying live options accounts...")
+        wsManager.fetchAccountsForToken(cleanToken) { accounts, errorMsg ->
+            if (accounts != null && accounts.isNotEmpty()) {
+                _tokenValidationState.value = TokenValidationState(
+                    status = "CHOOSE_ACCOUNT",
+                    accounts = accounts,
+                    token = cleanToken
+                )
+                onCompleted(true, "Successfully retrieved ${accounts.size} options accounts.")
+            } else {
+                val errorText = errorMsg ?: "No suitable Options accounts found."
+                _tokenValidationState.value = TokenValidationState(
+                    status = "ERROR",
+                    message = errorText
+                )
+                onCompleted(false, errorText)
+            }
+        }
+    }
 
+    fun chooseAccountAndInitialize(token: String, account: com.example.data.DerivWebSocketManager.DerivApiAccount, onCompleted: (Boolean, String) -> Unit = { _, _ -> }) {
+        _tokenValidationState.value = TokenValidationState(status = "LOADING", message = "Establishing authorized channel to ${account.accountId}...")
+        viewModelScope.launch {
+            val isVirtual = account.accountType == "demo"
+            wsManager.preferDemo = isVirtual
+            
+            // Connect and validate WebSocket authorization first
+            wsManager.sendAuthorizeRequest(token)
+            
             var validated = false
-            var responseMessage = "Token authorization check timed out. Please check your network connection."
+            var responseMessage = "Token authorization check timed out. Please check your connection."
             var delayCount = 0
 
-            // Query authorization states from web socket manager
             while (delayCount < 35) {
                 delay(500)
                 val connectionState = wsManager.connectionState.value
@@ -628,25 +708,22 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
 
                     if (!hasRead || !hasTrade) {
                         validated = false
-                        responseMessage = "Security scope validation failed! Available scopes: ${scopes.joinToString()}. Scope 'read' and 'trade' permission is required."
-                    } else if (balance == null || balance < 0.0) {
-                        validated = false
-                        responseMessage = "Deposit validation failed! Your authorized Deriv wallet balance ($balance) is empty."
+                        responseMessage = "Scope validation failed! Read and trade permissions are required."
                     } else {
                         validated = true
-                        val isVirtual = wsManager.authorizedIsVirtual.value ?: false
-                        val accountTypeString = if (isVirtual) "Demo (Virtual)" else "Real"
-                        responseMessage = "Success! Authorized $accountTypeString Account with balance of $$balance."
+                        val finalBalance = balance ?: account.balance
+                        responseMessage = "Success! Loaded account ${account.accountId} with balance of $${finalBalance}."
                         
-                        // Dynamically update user settings to match the verified token type (Demo or Real)
                         try {
                             val current = _userSettings.value
                             val updated = current.copy(
-                                derivToken = cleanToken,
+                                derivToken = token,
                                 isDemoAccount = isVirtual,
-                                demoWalletBalance = if (isVirtual) balance else current.demoWalletBalance,
-                                realWalletBalance = if (!isVirtual) balance else current.realWalletBalance,
-                                derivWalletBalance = balance
+                                demoWalletBalance = if (isVirtual) finalBalance else current.demoWalletBalance,
+                                realWalletBalance = if (!isVirtual) finalBalance else current.realWalletBalance,
+                                derivWalletBalance = finalBalance,
+                                currency = account.currency,
+                                traderName = account.name
                             )
                             repository.saveSettings(updated)
                             _userSettings.value = updated
@@ -662,10 +739,18 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                 }
                 delayCount++
             }
-
-            _tokenValidationMessage.value = null
+            
+            if (validated) {
+                _tokenValidationState.value = TokenValidationState(status = "SUCCESS", message = responseMessage)
+            } else {
+                _tokenValidationState.value = TokenValidationState(status = "ERROR", message = responseMessage)
+            }
             onCompleted(validated, responseMessage)
         }
+    }
+
+    fun dismissTokenValidationState() {
+        _tokenValidationState.value = null
     }
 
     /**
@@ -1264,7 +1349,21 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
+    private fun shouldSkipFeedback(): Boolean {
+        try {
+            val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager
+            if (audioManager != null) {
+                val mode = audioManager.ringerMode
+                return mode == android.media.AudioManager.RINGER_MODE_SILENT || mode == android.media.AudioManager.RINGER_MODE_VIBRATE
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return false
+    }
+
     fun triggerSingleVibration() {
+        if (shouldSkipFeedback()) return
         try {
             @Suppress("DEPRECATION")
             val vibrator = context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
@@ -1283,6 +1382,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
     }
 
     fun triggerDoubleVibration() {
+        if (shouldSkipFeedback()) return
         try {
             @Suppress("DEPRECATION")
             val vibrator = context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
@@ -1301,6 +1401,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
     }
 
     fun triggerConflictWarningVibration() {
+        if (shouldSkipFeedback()) return
         try {
             @Suppress("DEPRECATION")
             val vibrator = context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
