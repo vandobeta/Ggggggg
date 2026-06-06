@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -57,6 +58,10 @@ fun SignalsScreen(
     val stopLossHit by viewModel.stopLossHit.collectAsState()
 
     var activeTab by remember { mutableStateOf("RADAR") } // "RADAR" or "HISTORY"
+
+    var showTokenPromptDialog by remember { mutableStateOf(false) }
+    var tokenPromptAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var tokenInputText by remember { mutableStateOf("") }
 
     val backgroundBrush = Brush.verticalGradient(
         colors = listOf(
@@ -364,10 +369,19 @@ fun SignalsScreen(
                         // Toggle Pilot Switch directly
                         Switch(
                             checked = userSettings.autoTraderEnabled,
-                            onCheckedChange = {
-                                viewModel.updateSettingsInDb(userSettings.copy(autoTraderEnabled = it))
-                                if (it) {
-                                    viewModel.resetAutoTraderSession()
+                            onCheckedChange = { isOn ->
+                                if (isOn && userSettings.derivToken.isEmpty()) {
+                                    tokenInputText = ""
+                                    tokenPromptAction = {
+                                        viewModel.updateSettingsInDb(userSettings.copy(autoTraderEnabled = true))
+                                        viewModel.resetAutoTraderSession()
+                                    }
+                                    showTokenPromptDialog = true
+                                } else {
+                                    viewModel.updateSettingsInDb(userSettings.copy(autoTraderEnabled = isOn))
+                                    if (isOn) {
+                                        viewModel.resetAutoTraderSession()
+                                    }
                                 }
                             },
                             modifier = Modifier.scale(0.8f).testTag("flight_deck_toggle_switch"),
@@ -862,13 +876,22 @@ fun SignalsScreen(
                                                 haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                                val stakeValue = manualStake.toDoubleOrNull() ?: 5.00
                                                 val barrierNum = signal.barrier.toIntOrNull() ?: 5
-                                                viewModel.executeManualTrade(
-                                                    symbolCode = signal.symbol,
-                                                    displayName = signal.displayName,
-                                                    contractType = signal.contractType,
-                                                    barrier = barrierNum,
-                                                    stake = stakeValue
-                                                )
+                                                val runAction = {
+                                                    viewModel.executeManualTrade(
+                                                        symbolCode = signal.symbol,
+                                                        displayName = signal.displayName,
+                                                        contractType = signal.contractType,
+                                                        barrier = barrierNum,
+                                                        stake = stakeValue
+                                                    )
+                                                }
+                                                if (userSettings.derivToken.isEmpty()) {
+                                                    tokenInputText = ""
+                                                    tokenPromptAction = runAction
+                                                    showTokenPromptDialog = true
+                                                } else {
+                                                    runAction()
+                                                }
                                             },
                                             colors = ButtonDefaults.buttonColors(
                                                 containerColor = if (signal.contractType == "UNDER") Color(0xFF10B981) else Color(0xFFFBBF24)
@@ -1522,22 +1545,31 @@ fun SignalsScreen(
                             Button(
                                 onClick = {
                                     haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                                    viewModel.executeManualTrade(
-                                        symbolCode = if (isCustomMode) targetSymbol else autoSymbol,
-                                        displayName = if (isCustomMode) {
-                                            when(targetSymbol) {
-                                                "1HZ10V" -> "Volatility 10 (1s) Index"
-                                                "1HZ25V" -> "Volatility 25 (1s) Index"
-                                                "1HZ50V" -> "Volatility 50 (1s) Index"
-                                                "1HZ75V" -> "Volatility 75 (1s) Index"
-                                                else -> "Volatility 100 (1s) Index"
-                                            }
-                                        } else autoDisplayName,
-                                        contractType = if (isCustomMode) customContractType else autoType,
-                                        barrier = if (isCustomMode) customBarrier else autoBarrier,
-                                        stake = stakeInput.toDoubleOrNull() ?: 5.0
-                                    )
-                                    Toast.makeText(context, "Trade Dispatched to Execution Pool!", Toast.LENGTH_SHORT).show()
+                                    val runAction = {
+                                        viewModel.executeManualTrade(
+                                            symbolCode = if (isCustomMode) targetSymbol else autoSymbol,
+                                            displayName = if (isCustomMode) {
+                                                when(targetSymbol) {
+                                                    "1HZ10V" -> "Volatility 10 (1s) Index"
+                                                    "1HZ25V" -> "Volatility 25 (1s) Index"
+                                                    "1HZ50V" -> "Volatility 50 (1s) Index"
+                                                    "1HZ75V" -> "Volatility 75 (1s) Index"
+                                                    else -> "Volatility 100 (1s) Index"
+                                                }
+                                            } else autoDisplayName,
+                                            contractType = if (isCustomMode) customContractType else autoType,
+                                            barrier = if (isCustomMode) customBarrier else autoBarrier,
+                                            stake = stakeInput.toDoubleOrNull() ?: 5.0
+                                        )
+                                        Toast.makeText(context, "Trade Dispatched to Execution Pool!", Toast.LENGTH_SHORT).show()
+                                    }
+                                    if (userSettings.derivToken.isEmpty()) {
+                                        tokenInputText = ""
+                                        tokenPromptAction = runAction
+                                        showTokenPromptDialog = true
+                                    } else {
+                                        runAction()
+                                    }
                                 },
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -2193,6 +2225,93 @@ fun SignalsScreen(
                 }
             }
         }
+    }
+
+    if (showTokenPromptDialog) {
+        AlertDialog(
+            onDismissRequest = { 
+                showTokenPromptDialog = false 
+                tokenPromptAction = null
+            },
+            containerColor = Color(0xFF1E293B),
+            titleContentColor = Color.White,
+            textContentColor = Color.LightGray,
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = "Security Token Required",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "API AUTH TOKEN REQUIRED",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Black,
+                        fontFamily = FontFamily.Monospace,
+                        letterSpacing = 1.sp
+                    )
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "A valid Deriv Personal Access Token (PAT) is required to perform authorized operations. Enter your token below to authenticate securely:",
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                        color = Color.LightGray
+                    )
+                    OutlinedTextField(
+                        value = tokenInputText,
+                        onValueChange = { tokenInputText = it },
+                        placeholder = { Text("Paste your API token here...", color = Color.Gray, fontSize = 11.sp) },
+                        singleLine = true,
+                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 12.sp, fontFamily = FontFamily.Monospace),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = Color.White.copy(alpha = 0.15f)
+                        ),
+                        modifier = Modifier.fillMaxWidth().testTag("pop_up_token_input")
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val cleanToken = tokenInputText.trim()
+                        if (cleanToken.isNotEmpty()) {
+                            viewModel.updateSettingsInDb(userSettings.copy(derivToken = cleanToken))
+                            showTokenPromptDialog = false
+                            viewModel.validateTokenAndInitializeEngine(cleanToken, userSettings.isDemoAccount) { success, msg ->
+                                if (success) {
+                                    tokenPromptAction?.invoke()
+                                } else {
+                                    Toast.makeText(context, "Auth Error: $msg", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Text("SAVE & ACTIVATE", fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { 
+                        showTokenPromptDialog = false
+                        tokenPromptAction = null
+                    }
+                ) {
+                    Text("CANCEL", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                }
+            },
+            shape = RoundedCornerShape(16.dp)
+        )
     }
 }
 

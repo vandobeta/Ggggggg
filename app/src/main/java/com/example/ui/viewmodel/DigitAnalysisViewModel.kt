@@ -754,6 +754,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                             val updated = current.copy(
                                 derivToken = token,
                                 isDemoAccount = isVirtual,
+                                currentAccountType = if (isVirtual) "demo" else "real",
                                 demoWalletBalance = if (isVirtual) finalBalance else current.demoWalletBalance,
                                 realWalletBalance = if (!isVirtual) finalBalance else current.realWalletBalance,
                                 derivWalletBalance = finalBalance,
@@ -1854,6 +1855,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                 val nextDemoMode = !currentSettings.isDemoAccount
                 val updatedSettings = currentSettings.copy(
                     isDemoAccount = nextDemoMode,
+                    currentAccountType = if (nextDemoMode) "demo" else "real",
                     derivWalletBalance = if (nextDemoMode) currentSettings.demoWalletBalance else currentSettings.realWalletBalance
                 )
                 

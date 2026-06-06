@@ -383,17 +383,17 @@ class MainActivity : ComponentActivity() {
                 )
               )
               NavigationBarItem(
-                selected = currentScreen == "SETTINGS",
-                onClick = { currentScreen = "SETTINGS" },
+                selected = currentScreen == "DERIV_LIVE",
+                onClick = { currentScreen = "DERIV_LIVE" },
                 icon = { 
                   Icon(
-                    imageVector = Icons.Default.Settings, 
-                    contentDescription = "Presets" 
+                    imageVector = Icons.Default.Info, 
+                    contentDescription = "Deriv Live" 
                   ) 
                 },
                 label = { 
                   Text(
-                    text = "TUNING KEYS", 
+                    text = "DERIV LIVE", 
                     fontSize = 10.sp, 
                     fontWeight = FontWeight.Bold 
                   ) 
@@ -407,17 +407,17 @@ class MainActivity : ComponentActivity() {
                 )
               )
               NavigationBarItem(
-                selected = currentScreen == "DERIV_LIVE",
-                onClick = { currentScreen = "DERIV_LIVE" },
+                selected = currentScreen == "SETTINGS",
+                onClick = { currentScreen = "SETTINGS" },
                 icon = { 
                   Icon(
-                    imageVector = Icons.Default.Info, 
-                    contentDescription = "Deriv Live" 
+                    imageVector = Icons.Default.Settings, 
+                    contentDescription = "Presets" 
                   ) 
                 },
                 label = { 
                   Text(
-                    text = "DERIV LIVE", 
+                    text = "TUNING KEYS", 
                     fontSize = 10.sp, 
                     fontWeight = FontWeight.Bold 
                   ) 

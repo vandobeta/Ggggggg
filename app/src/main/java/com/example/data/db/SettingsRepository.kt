@@ -15,21 +15,17 @@ class SettingsRepository(private val dao: AppSettingsDao) {
     }
 
     suspend fun saveSettings(settings: AppSettings) {
-        val isDemo = if (settings.currentAccountType.lowercase().trim() == "real") false 
-                     else if (settings.currentAccountType.lowercase().trim() == "demo") true 
-                     else settings.isDemoAccount
+        val isDemo = settings.isDemoAccount
         val accountType = if (isDemo) "demo" else "real"
         
-        val autoTraderOn = if (settings.autoTraderStatus == 1) true 
-                           else if (settings.autoTraderStatus == 0) false 
-                           else settings.autoTraderEnabled
+        val autoTraderOn = settings.autoTraderEnabled
         val autoStatus = if (autoTraderOn) 1 else 0
         
-        val token = if (settings.patToken.isNotEmpty()) settings.patToken else settings.derivToken
+        val token = settings.derivToken
         val appId = if (settings.derivAppId.isNotEmpty()) settings.derivAppId else "33sKaNullz3jmWQs7OXxZ"
         
-        val maxSignals = if (settings.maxSignalsPerDay != 50) settings.maxSignalsPerDay else settings.signalsPerDayLimit
-        val maxSessions = if (settings.tradeSessionsPerDay != 3) settings.tradeSessionsPerDay else settings.sessionsPerDay
+        val maxSignals = settings.signalsPerDayLimit
+        val maxSessions = settings.sessionsPerDay
         
         val synced = settings.copy(
             isDemoAccount = isDemo,
