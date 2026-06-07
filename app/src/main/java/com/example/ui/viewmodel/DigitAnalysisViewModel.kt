@@ -96,6 +96,15 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
     private val _crossoverDetected = MutableStateFlow<Boolean>(false)
     val crossoverDetected: StateFlow<Boolean> = _crossoverDetected.asStateFlow()
 
+    private val _marketChoppyBlocked = MutableStateFlow(false)
+    val marketChoppyBlocked: StateFlow<Boolean> = _marketChoppyBlocked.asStateFlow()
+
+    private val _entryTriggerAwaiting = MutableStateFlow(false)
+    val entryTriggerAwaiting: StateFlow<Boolean> = _entryTriggerAwaiting.asStateFlow()
+
+    private val _dualVectorState = MutableStateFlow<DualVectorState?>(null)
+    val dualVectorState: StateFlow<DualVectorState?> = _dualVectorState.asStateFlow()
+
     fun resetAutoTraderSession() {
         _autoSessionProfit.value = 0.0
         _maxSessionProfit.value = 0.0
@@ -1022,6 +1031,90 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
         _selectedSymbol.value = topRankingSymbol
 
         _selectedPacket.value = packetsPrepared[topRankingSymbol]
+
+        val currentSym = _selectedSymbol.value
+        val history = wsManager.getHistoryFor(currentSym)
+        if (history.isNotEmpty()) {
+            val historyLimit = history.takeLast(30)
+            val size = historyLimit.size
+            if (size >= 10) {
+                val halfSize = size / 2
+                val recentHalf = historyLimit.takeLast(halfSize)
+                val priorHalf = historyLimit.dropLast(halfSize).takeLast(halfSize)
+
+                val recentEvenCount = recentHalf.count { it % 2 == 0 }
+                val priorEvenCount = priorHalf.count { it % 2 == 0 }
+                val recentEvenPct = (recentEvenCount.toFloat() / halfSize.toFloat()) * 100f
+                val priorEvenPct = (priorEvenCount.toFloat() / priorHalf.size.toFloat()) * 100f
+                val evenDelta = recentEvenPct - priorEvenPct
+
+                val recentOddCount = recentHalf.count { it % 2 != 0 }
+                val priorOddCount = priorHalf.count { it % 2 != 0 }
+                val recentOddPct = (recentOddCount.toFloat() / halfSize.toFloat()) * 100f
+                val priorOddPct = (priorOddCount.toFloat() / priorHalf.size.toFloat()) * 100f
+                val oddDelta = recentOddPct - priorOddPct
+
+                var evenWeightedSum = 0f
+                var oddWeightedSum = 0f
+                var totalWeightsSum = 0f
+                
+                for (i in 0 until size) {
+                    val weight = (i + 1).toFloat()
+                    totalWeightsSum += weight
+                    if (historyLimit[i] % 2 == 0) {
+                        evenWeightedSum += weight
+                    } else {
+                        oddWeightedSum += weight
+                    }
+                }
+                
+                val evenMomentum = if (totalWeightsSum > 0) (evenWeightedSum / totalWeightsSum) * 100f else 50f
+                val oddMomentum = if (totalWeightsSum > 0) (oddWeightedSum / totalWeightsSum) * 100f else 50f
+
+                val evenPercentage = (historyLimit.count { it % 2 == 0 }.toFloat() / size.toFloat()) * 100f
+                val oddPercentage = (historyLimit.count { it % 2 != 0 }.toFloat() / size.toFloat()) * 100f
+
+                val evenDominates = evenPercentage > 52f && evenMomentum > oddMomentum
+                val oddDominates = oddPercentage > 52f && oddMomentum > evenMomentum
+                val dominantSide = when {
+                    evenDominates -> "EVENS"
+                    oddDominates -> "ODDS"
+                    else -> "NONE"
+                }
+
+                val evenTrigger = evenDelta > 0f && evenMomentum > oddMomentum && oddDelta < 0f
+                val oddTrigger = oddDelta > 0f && oddMomentum > evenMomentum && evenDelta < 0f
+                
+                val triggerPassed = evenTrigger || oddTrigger
+                val triggerDir = when {
+                    evenTrigger -> "EVEN"
+                    oddTrigger -> "ODD"
+                    else -> "NONE"
+                }
+
+                _dualVectorState.value = DualVectorState(
+                    evenVector = ParityVector(
+                        percentage = evenPercentage,
+                        delta = evenDelta,
+                        momentum = evenMomentum,
+                        isDominating = evenDominates
+                    ),
+                    oddVector = ParityVector(
+                        percentage = oddPercentage,
+                        delta = oddDelta,
+                        momentum = oddMomentum,
+                        isDominating = oddDominates
+                    ),
+                    dominantSide = dominantSide,
+                    entryTriggerPassed = triggerPassed,
+                    triggerDirection = triggerDir
+                )
+            } else {
+                _dualVectorState.value = null
+            }
+        } else {
+            _dualVectorState.value = null
+        }
     }
 
     private fun calculatePredictions(
@@ -1480,8 +1573,28 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
         val history = wsManager.getHistoryFor(symbolCode)
         if (history.isEmpty()) return
 
-        // Take top 3 predictors representing candidates
         val activePacket = _selectedPacket.value
+        val stability = if (activePacket != null && activePacket.symbol == symbolCode) activePacket.stabilityScore else 50f
+        val isChoppy = stability < 40f
+        _marketChoppyBlocked.value = isChoppy
+        
+        if (isChoppy) {
+            _activeSignal.value = null
+            _entryTriggerAwaiting.value = false
+            android.util.Log.d("DigitAnalysisViewModel", "Safety Filter: Market is choppy ($stability%). Skipping signal.")
+            return
+        }
+
+        val vecState = _dualVectorState.value
+        val hasEntryTrigger = vecState != null && vecState.entryTriggerPassed
+        
+        _entryTriggerAwaiting.value = !hasEntryTrigger
+        if (!hasEntryTrigger) {
+            android.util.Log.d("DigitAnalysisViewModel", "Entry Trigger Filter: Dual vector condition not met. Awaiting convergence...")
+            return
+        }
+
+        // Take top 3 predictors representing candidates
         val candidates = if (activePacket != null && activePacket.symbol == symbolCode && activePacket.predictionsList.isNotEmpty()) {
             activePacket.predictionsList.take(3).map { it.digit }
         } else {
@@ -2125,4 +2238,19 @@ data class BacktestTx(
     val entryDigit: Int,
     val targetDigit: Int,
     val symbolDisp: String
+)
+
+data class ParityVector(
+    val percentage: Float,
+    val delta: Float,
+    val momentum: Float,
+    val isDominating: Boolean
+)
+
+data class DualVectorState(
+    val evenVector: ParityVector,
+    val oddVector: ParityVector,
+    val dominantSide: String,
+    val entryTriggerPassed: Boolean,
+    val triggerDirection: String
 )

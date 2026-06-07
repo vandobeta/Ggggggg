@@ -52,6 +52,9 @@ fun SignalsScreen(
     val countdown by viewModel.signalCountdown.collectAsState()
     val userSettings by viewModel.userSettings.collectAsState()
     val signalHistoryList by viewModel.signalHistory.collectAsState()
+    val marketChoppyBlocked by viewModel.marketChoppyBlocked.collectAsState()
+    val entryTriggerAwaiting by viewModel.entryTriggerAwaiting.collectAsState()
+    val dualVectorState by viewModel.dualVectorState.collectAsState()
 
     val autoSessionProfit by viewModel.autoSessionProfit.collectAsState()
     val targetProfitReached by viewModel.targetProfitReached.collectAsState()
@@ -526,6 +529,161 @@ fun SignalsScreen(
                 }
             }
 
+            // --- REAL-TIME PARITY DUAL VECTOR LOOP ANALYSIS ---
+            dualVectorState?.let { dvs ->
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0D0E15)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp)
+                        .border(
+                            width = 1.dp,
+                            color = if (dvs.entryTriggerPassed) Color(0xFF0F172A).copy(alpha = 0.5f) else Color.White.copy(alpha = 0.05f),
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "🌀 PARITY DUAL VECTOR LOOP ENGINE",
+                                color = Color.White,
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(if (dvs.entryTriggerPassed) Color(0xFF10B981).copy(alpha = 0.15f) else Color(0xFFFBBF24).copy(alpha = 0.15f))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = if (dvs.entryTriggerPassed) "TRIGGERED ⚡" else "AWAITING SQUEEZE ⌛",
+                                    color = if (dvs.entryTriggerPassed) Color(0xFF10B981) else Color(0xFFFBBF24),
+                                    fontSize = 7.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // EVENS Vector Gauge
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color.White.copy(alpha = 0.02f))
+                                    .padding(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("EVENS VECTOR", color = Color.Gray, fontSize = 7.5.sp, fontFamily = FontFamily.Monospace)
+                                    if (dvs.dominantSide == "EVENS") {
+                                        Text("DOMINANT", color = Color(0xFF10B981), fontSize = 7.5.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                    }
+                                }
+                                Text(
+                                    text = String.format(java.util.Locale.US, "%.1f%% Density", dvs.evenVector.percentage),
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    val evSign = if (dvs.evenVector.delta >= 0) "▲" else "▼"
+                                    val evColor = if (dvs.evenVector.delta >= 0) Color(0xFF34D399) else Color(0xFFEF4444)
+                                    Text(
+                                        text = String.format(java.util.Locale.US, "%s %.1f%% Shift", evSign, dvs.evenVector.delta),
+                                        color = evColor,
+                                        fontSize = 8.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = String.format(java.util.Locale.US, "Momentum: %.1f%%", dvs.evenVector.momentum),
+                                    color = Color.LightGray,
+                                    fontSize = 8.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                LinearProgressIndicator(
+                                    progress = { dvs.evenVector.momentum / 100f },
+                                    modifier = Modifier.fillMaxWidth().height(2.dp).padding(top = 2.dp).clip(CircleShape),
+                                    color = Color(0xFF34D399),
+                                    trackColor = Color.White.copy(alpha = 0.05f)
+                                )
+                            }
+
+                            // ODDS Vector Gauge
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color.White.copy(alpha = 0.02f))
+                                    .padding(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("ODDS VECTOR", color = Color.Gray, fontSize = 7.5.sp, fontFamily = FontFamily.Monospace)
+                                    if (dvs.dominantSide == "ODDS") {
+                                        Text("DOMINANT", color = Color(0xFF818CF8), fontSize = 7.5.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                    }
+                                }
+                                Text(
+                                    text = String.format(java.util.Locale.US, "%.1f%% Density", dvs.oddVector.percentage),
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    val odSign = if (dvs.oddVector.delta >= 0) "▲" else "▼"
+                                    val odColor = if (dvs.oddVector.delta >= 0) Color(0xFF34D399) else Color(0xFFEF4444)
+                                    Text(
+                                        text = String.format(java.util.Locale.US, "%s %.1f%% Shift", odSign, dvs.oddVector.delta),
+                                        color = odColor,
+                                        fontSize = 8.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = String.format(java.util.Locale.US, "Momentum: %.1f%%", dvs.oddVector.momentum),
+                                    color = Color.LightGray,
+                                    fontSize = 8.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                LinearProgressIndicator(
+                                    progress = { dvs.oddVector.momentum / 100f },
+                                    modifier = Modifier.fillMaxWidth().height(2.dp).padding(top = 2.dp).clip(CircleShape),
+                                    color = Color(0xFF818CF8),
+                                    trackColor = Color.White.copy(alpha = 0.05f)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // --- PRIMARY SIGNAL BOARD (LIQUID FROSTED GLASS EFFECT) ---
             Crossfade(
                 targetState = activeSignal,
@@ -533,7 +691,82 @@ fun SignalsScreen(
                 label = "signal_transition",
                 modifier = Modifier.weight(1f)
             ) { signal ->
-                if (signal != null) {
+                if (marketChoppyBlocked) {
+                    // --- RISK SAFETY VALVE ENFORCED CARD ---
+                    Card(
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1F1212).copy(alpha = 0.65f)),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .border(width = 1.dp, color = Color(0xFFEF4444).copy(alpha = 0.2f), shape = RoundedCornerShape(20.dp))
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxSize().padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = "Safety Block",
+                                tint = Color(0xFFF87171),
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "🛡️ RISK SAFETY SYSTEM ACTIVATED",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "The current volatility index is experiencing high frequency noise / flat consolidation (stability < 40%). All alert emissions and autopilot buys are locked out temporarily to satisfy the Capital Protection Directive.",
+                                color = Color.LightGray,
+                                fontSize = 9.5.sp,
+                                lineHeight = 14.sp,
+                                fontFamily = FontFamily.Monospace,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                } else if (entryTriggerAwaiting) {
+                    // --- AWAITING ENTRY CORRELATION CARD ---
+                    Card(
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF13141F).copy(alpha = 0.65f)),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .border(width = 1.dp, color = Color.White.copy(alpha = 0.08f), shape = RoundedCornerShape(20.dp))
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxSize().padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            CircularProgressIndicator(strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "AWAITING ENTRY TRIGGER SQUEEZE",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "The dual vector engine is tracking and caching parity density. Waiting to identify momentum domination cross between Evens and Odds before firing radar recommendation.",
+                                color = Color.Gray,
+                                fontSize = 9.sp,
+                                lineHeight = 13.sp,
+                                fontFamily = FontFamily.Monospace,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                } else if (signal != null) {
                     val isSuperseded = signal.id != activeSignal?.id
                     Column(
                         modifier = Modifier.fillMaxSize(),
