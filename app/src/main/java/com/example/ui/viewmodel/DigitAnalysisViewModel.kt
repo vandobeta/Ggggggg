@@ -685,6 +685,13 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                 // If real-time token is edited/updated, trigger a fresh secure auth request to keep states fully synced
                 if (newSettings.derivToken != oldSettings.derivToken && newSettings.derivToken.isNotEmpty()) {
                     wsManager.sendAuthorizeRequest(newSettings.derivToken)
+                } else if (newSettings.isDemoAccount != oldSettings.isDemoAccount || newSettings.currentAccountType != oldSettings.currentAccountType) {
+                    if (newSettings.derivToken.isNotEmpty()) {
+                        wsManager.preferDemo = newSettings.isDemoAccount
+                        wsManager.clearAuthStates()
+                        wsManager.disconnect()
+                        wsManager.sendAuthorizeRequest(newSettings.derivToken)
+                    }
                 }
             }
         }
@@ -787,6 +794,10 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
 
     fun dismissTokenValidationState() {
         _tokenValidationState.value = null
+    }
+
+    fun clearAuthStates() {
+        wsManager.clearAuthStates()
     }
 
     /**

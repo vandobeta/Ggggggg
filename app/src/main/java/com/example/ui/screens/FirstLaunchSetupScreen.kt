@@ -71,8 +71,17 @@ fun FirstLaunchSetupScreen(
     val authorizedScopes by viewModel.authorizedScopes.collectAsState()
 
     var isVerifyingToken by remember { mutableStateOf(false) }
-    var isTokenVerified by remember { mutableStateOf(false) }
+    val isTokenVerified = authorizedTraderName != null && authorizedUserId != null
     var tokenVerificationError by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(authorizedTraderName, authorizedBalance, authorizedCurrency, authorizedUserId) {
+        if (authorizedTraderName != null && authorizedUserId != null) {
+            nameInput = authorizedTraderName ?: "Deriv Trader"
+            capitalInput = String.format("%.2f", authorizedBalance ?: 1000.0)
+            selectedCurrency = authorizedCurrency ?: "USD"
+            goalInput = "Capital protection under account ID ${authorizedUserId ?: "N/A"}"
+        }
+    }
     
     // Step 3 Form States
     var disclaimerAccepted by remember { mutableStateOf(false) }
@@ -185,8 +194,8 @@ fun FirstLaunchSetupScreen(
                             token = derivTokenInput,
                             onTokenChange = { 
                                 derivTokenInput = it
-                                isTokenVerified = false 
                                 tokenVerificationError = null
+                                viewModel.clearAuthStates()
                             },
                             isVerifying = isVerifyingToken,
                             onVerifyClick = {
@@ -194,15 +203,7 @@ fun FirstLaunchSetupScreen(
                                 tokenVerificationError = null
                                 viewModel.validateTokenAndInitializeEngine(derivTokenInput.trim(), false) { success, msg ->
                                     isVerifyingToken = false
-                                    if (success) {
-                                        isTokenVerified = true
-                                        nameInput = authorizedTraderName ?: "Deriv Trader"
-                                        capitalInput = String.format("%.2f", authorizedBalance ?: 1000.0)
-                                        selectedCurrency = authorizedCurrency ?: "USD"
-                                        goalInput = "Capital protection under account ID ${authorizedUserId ?: "N/A"}"
-                                        Toast.makeText(context, "Credentials Parsed Successfully!", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        isTokenVerified = false
+                                    if (!success) {
                                         tokenVerificationError = msg
                                     }
                                 }
