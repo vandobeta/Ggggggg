@@ -1407,112 +1407,198 @@ fun SignalsScreen(
                                     fontFamily = FontFamily.Monospace
                                 )
                                 
-                                // Row 1 (digits 0-4)
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    for (digit in 0..4) {
-                                        val pct = percentages.getOrNull(digit) ?: 10.0f
-                                        val isMax = digit == maxIndex
-                                        val isMin = digit == minIndex
-                                        val strokeColor = when {
-                                            isMax -> Color(0xFFF97316) // Warm
-                                            isMin -> Color(0xFF06B6D4) // Cool exclusion zone
-                                            else -> Color.White.copy(alpha = 0.1f)
-                                        }
-                                        val bgColor = when {
-                                            isMax -> Color(0xFFF97316).copy(alpha = 0.1f)
-                                            isMin -> Color(0xFF06B6D4).copy(alpha = 0.1f)
-                                            else -> Color.Transparent
-                                        }
-                                        Box(
-                                            modifier = Modifier
-                                                .size(width = 62.dp, height = 62.dp)
-                                                .clip(CircleShape)
-                                                .background(bgColor)
-                                                .border(1.dp, strokeColor, CircleShape),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                // Row 1 (digits 0-4) with animated down cursor over active digit
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    val currentTickDigit = selectedPacket?.tickHistory?.lastOrNull()
+                                    
+                                    // Row 1 Cursor Track
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(14.dp)
+                                    ) {
+                                        val hasDigitInRow1 = currentTickDigit != null && currentTickDigit in 0..4
+                                        if (hasDigitInRow1) {
+                                            val animatedRow1Bias by animateFloatAsState(
+                                                targetValue = (currentTickDigit ?: 0) * 0.5f - 1.0f,
+                                                animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMediumLow),
+                                                label = "digit_cursor_row1"
+                                            )
+                                            
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(androidx.compose.ui.BiasAlignment(horizontalBias = animatedRow1Bias, verticalBias = 1.0f))
+                                                    .width(62.dp),
+                                                contentAlignment = Alignment.BottomCenter
+                                            ) {
                                                 Text(
-                                                    text = "$digit",
-                                                    color = when {
-                                                        isMax -> Color(0xFFFBBF24)
-                                                        isMin -> Color(0xFF22D3EE)
-                                                        else -> Color.White
-                                                    },
-                                                    fontSize = 14.sp,
-                                                    fontWeight = FontWeight.Black,
-                                                    fontFamily = FontFamily.Monospace
-                                                )
-                                                Text(
-                                                    text = String.format("%.1f%%", pct),
-                                                    color = Color.Gray,
-                                                    fontSize = 8.sp,
+                                                    text = "▼",
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    fontSize = 11.sp,
                                                     fontWeight = FontWeight.Bold,
-                                                    fontFamily = FontFamily.Monospace
+                                                    textAlign = TextAlign.Center
                                                 )
-                                                if (isMax) {
-                                                    Text("HOT", color = Color(0xFFF97316), fontSize = 7.sp, fontWeight = FontWeight.Bold)
-                                                } else if (isMin) {
-                                                    Text("COLD", color = Color(0xFF06B6D4), fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                    
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        for (digit in 0..4) {
+                                            val pct = percentages.getOrNull(digit) ?: 10.0f
+                                            val isMax = digit == maxIndex
+                                            val isMin = digit == minIndex
+                                            val isCurrentTick = currentTickDigit != null && digit == currentTickDigit
+                                            
+                                            val strokeColor = when {
+                                                isCurrentTick -> MaterialTheme.colorScheme.primary
+                                                isMax -> Color(0xFFF97316)
+                                                isMin -> Color(0xFF06B6D4)
+                                                else -> Color.White.copy(alpha = 0.1f)
+                                            }
+                                            val outerBorderWidth = if (isCurrentTick) 2.5.dp else 1.dp
+                                            val bgColor = when {
+                                                isCurrentTick -> MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                                                isMax -> Color(0xFFF97316).copy(alpha = 0.1f)
+                                                isMin -> Color(0xFF06B6D4).copy(alpha = 0.1f)
+                                                else -> Color.Transparent
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(width = 62.dp, height = 62.dp)
+                                                    .clip(CircleShape)
+                                                    .background(bgColor)
+                                                    .border(outerBorderWidth, strokeColor, CircleShape),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                    Text(
+                                                        text = "$digit",
+                                                        color = when {
+                                                            isCurrentTick -> Color.White
+                                                            isMax -> Color(0xFFFBBF24)
+                                                            isMin -> Color(0xFF22D3EE)
+                                                            else -> Color.White
+                                                        },
+                                                        fontSize = 14.sp,
+                                                        fontWeight = if (isCurrentTick) FontWeight.Black else FontWeight.Bold,
+                                                        fontFamily = FontFamily.Monospace
+                                                    )
+                                                    Text(
+                                                        text = String.format("%.1f%%", pct),
+                                                        color = if (isCurrentTick) Color.White.copy(alpha = 0.8f) else Color.Gray,
+                                                        fontSize = 8.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontFamily = FontFamily.Monospace
+                                                    )
+                                                    if (isCurrentTick) {
+                                                        Text("LIVE", color = MaterialTheme.colorScheme.primary, fontSize = 7.sp, fontWeight = FontWeight.Black)
+                                                    } else if (isMax) {
+                                                        Text("HOT", color = Color(0xFFF97316), fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                                                    } else if (isMin) {
+                                                        Text("COLD", color = Color(0xFF06B6D4), fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                                                    }
                                                 }
                                             }
                                         }
                                     }
                                 }
 
-                                // Row 1 (digits 5-9)
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    for (digit in 5..9) {
-                                        val pct = percentages.getOrNull(digit) ?: 10.0f
-                                        val isMax = digit == maxIndex
-                                        val isMin = digit == minIndex
-                                        val strokeColor = when {
-                                            isMax -> Color(0xFFF97316)
-                                            isMin -> Color(0xFF06B6D4)
-                                            else -> Color.White.copy(alpha = 0.1f)
-                                        }
-                                        val bgColor = when {
-                                            isMax -> Color(0xFFF97316).copy(alpha = 0.1f)
-                                            isMin -> Color(0xFF06B6D4).copy(alpha = 0.1f)
-                                            else -> Color.Transparent
-                                        }
-                                        Box(
-                                            modifier = Modifier
-                                                .size(width = 62.dp, height = 62.dp)
-                                                .clip(CircleShape)
-                                                .background(bgColor)
-                                                .border(1.dp, strokeColor, CircleShape),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                // Row 2 (digits 5-9) with animated down cursor over active digit
+                                Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                                    val currentTickDigit = selectedPacket?.tickHistory?.lastOrNull()
+                                    
+                                    // Row 2 Cursor Track
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(14.dp)
+                                    ) {
+                                        val hasDigitInRow2 = currentTickDigit != null && currentTickDigit in 5..9
+                                        if (hasDigitInRow2) {
+                                            val animatedRow2Bias by animateFloatAsState(
+                                                targetValue = ((currentTickDigit ?: 5) - 5) * 0.5f - 1.0f,
+                                                animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMediumLow),
+                                                label = "digit_cursor_row2"
+                                            )
+                                            
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(androidx.compose.ui.BiasAlignment(horizontalBias = animatedRow2Bias, verticalBias = 1.0f))
+                                                    .width(62.dp),
+                                                contentAlignment = Alignment.BottomCenter
+                                            ) {
                                                 Text(
-                                                    text = "$digit",
-                                                    color = when {
-                                                        isMax -> Color(0xFFFBBF24)
-                                                        isMin -> Color(0xFF22D3EE)
-                                                        else -> Color.White
-                                                    },
-                                                    fontSize = 14.sp,
-                                                    fontWeight = FontWeight.Black,
-                                                    fontFamily = FontFamily.Monospace
-                                                )
-                                                Text(
-                                                    text = String.format("%.1f%%", pct),
-                                                    color = Color.Gray,
-                                                    fontSize = 8.sp,
+                                                    text = "▼",
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    fontSize = 11.sp,
                                                     fontWeight = FontWeight.Bold,
-                                                    fontFamily = FontFamily.Monospace
+                                                    textAlign = TextAlign.Center
                                                 )
-                                                if (isMax) {
-                                                    Text("HOT", color = Color(0xFFF97316), fontSize = 7.sp, fontWeight = FontWeight.Bold)
-                                                } else if (isMin) {
-                                                    Text("COLD", color = Color(0xFF06B6D4), fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                    
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        for (digit in 5..9) {
+                                            val pct = percentages.getOrNull(digit) ?: 10.0f
+                                            val isMax = digit == maxIndex
+                                            val isMin = digit == minIndex
+                                            val isCurrentTick = currentTickDigit != null && digit == currentTickDigit
+                                            
+                                            val strokeColor = when {
+                                                isCurrentTick -> MaterialTheme.colorScheme.primary
+                                                isMax -> Color(0xFFF97316)
+                                                isMin -> Color(0xFF06B6D4)
+                                                else -> Color.White.copy(alpha = 0.1f)
+                                            }
+                                            val outerBorderWidth = if (isCurrentTick) 2.5.dp else 1.dp
+                                            val bgColor = when {
+                                                isCurrentTick -> MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                                                isMax -> Color(0xFFF97316).copy(alpha = 0.1f)
+                                                isMin -> Color(0xFF06B6D4).copy(alpha = 0.1f)
+                                                else -> Color.Transparent
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(width = 62.dp, height = 62.dp)
+                                                    .clip(CircleShape)
+                                                    .background(bgColor)
+                                                    .border(outerBorderWidth, strokeColor, CircleShape),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                    Text(
+                                                        text = "$digit",
+                                                        color = when {
+                                                            isCurrentTick -> Color.White
+                                                            isMax -> Color(0xFFFBBF24)
+                                                            isMin -> Color(0xFF22D3EE)
+                                                            else -> Color.White
+                                                        },
+                                                        fontSize = 14.sp,
+                                                        fontWeight = if (isCurrentTick) FontWeight.Black else FontWeight.Bold,
+                                                        fontFamily = FontFamily.Monospace
+                                                    )
+                                                    Text(
+                                                        text = String.format("%.1f%%", pct),
+                                                        color = if (isCurrentTick) Color.White.copy(alpha = 0.8f) else Color.Gray,
+                                                        fontSize = 8.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontFamily = FontFamily.Monospace
+                                                    )
+                                                    if (isCurrentTick) {
+                                                        Text("LIVE", color = MaterialTheme.colorScheme.primary, fontSize = 7.sp, fontWeight = FontWeight.Black)
+                                                    } else if (isMax) {
+                                                        Text("HOT", color = Color(0xFFF97316), fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                                                    } else if (isMin) {
+                                                        Text("COLD", color = Color(0xFF06B6D4), fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                                                    }
                                                 }
                                             }
                                         }
@@ -1767,6 +1853,46 @@ fun SignalsScreen(
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Text("$$opt", color = if (sel) Color.White else Color.Gray, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                        }
+                                    }
+                                }
+                            }
+
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.08f), modifier = Modifier.padding(vertical = 4.dp))
+
+                            // Contract closure ticks setting
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("NUMBER OF TICKS TO CONTRACT CLOSURE", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    val tickOptions = listOf(1, 2, 3, 5, 10)
+                                    tickOptions.forEach { t ->
+                                        val sel = userSettings.virtualTradeCloseTicks == t
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(if (sel) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.04f))
+                                                .border(
+                                                    width = 0.5.dp,
+                                                    color = if (sel) Color.Transparent else Color.White.copy(alpha = 0.05f),
+                                                    shape = RoundedCornerShape(6.dp)
+                                                )
+                                                .clickable {
+                                                    viewModel.updateSettingsInDb(userSettings.copy(virtualTradeCloseTicks = t))
+                                                }
+                                                .padding(vertical = 10.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = if (t == 1) "1 TICK" else "$t TICKS",
+                                                color = if (sel) Color.White else Color.Gray,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                fontFamily = FontFamily.Monospace
+                                            )
                                         }
                                     }
                                 }

@@ -565,6 +565,57 @@ fun SettingsScreen(
 
                     HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
 
+                    // Contract Close Ticks selector
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "CONTRACT CLOSURE DURATION (TICKS)",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Configure the exact number of ticks from contract purchase to exit valuation",
+                            color = Color.Gray,
+                            fontSize = 9.sp
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val tickOptions = listOf(1, 2, 3, 5, 10)
+                            tickOptions.forEach { t ->
+                                val isSelected = userSettings.virtualTradeCloseTicks == t
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f))
+                                        .border(
+                                            width = 1.dp,
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.10f),
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable {
+                                            viewModel.updateSettingsInDb(userSettings.copy(virtualTradeCloseTicks = t))
+                                        }
+                                        .padding(vertical = 10.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = if (t == 1) "1 Tick" else "$t Ticks",
+                                        color = if (isSelected) Color.White else Color.Gray,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
