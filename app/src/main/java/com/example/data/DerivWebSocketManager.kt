@@ -131,6 +131,10 @@ class DerivWebSocketManager {
         _tradeFeedbackFlow.value = null
     }
 
+    fun publishTradeFeedback(feedback: TradeFeedback) {
+        _tradeFeedbackFlow.value = feedback
+    }
+
     private val _liveLogs = MutableStateFlow<List<WsLog>>(emptyList())
     val liveLogs: StateFlow<List<WsLog>> = _liveLogs.asStateFlow()
 

@@ -165,6 +165,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
 
     val activePendingTrades = java.util.Collections.synchronizedList(mutableListOf<com.example.data.db.TradeHistory>())
     val tradeTicksRemaining = java.util.concurrent.ConcurrentHashMap<Long, Int>()
+    private val processedOnChainContracts = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
 
     private val _navErrorMessage = MutableStateFlow<String?>(null)
     val navErrorMessage: StateFlow<String?> = _navErrorMessage.asStateFlow()
@@ -322,64 +323,66 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                         val finishedStatus = contract.status.trim().uppercase()
                         if (finishedStatus == "WON" || finishedStatus == "LOST" || finishedStatus == "WON_CONTRACT" || finishedStatus == "LOST_CONTRACT") {
                             val mainStatus = if (finishedStatus.contains("WON")) "WIN" else "LOSS"
-                            synchronized(activePendingTrades) {
-                                val matchIndex = activePendingTrades.indexOfFirst { 
-                                    it.symbolCode == contract.symbol && it.status == "PENDING" 
-                                }
-                                if (matchIndex != -1) {
-                                    val pending = activePendingTrades[matchIndex]
-                                    val resolvedTrade = pending.copy(
-                                        exitPrice = contract.bidPrice,
-                                        exitDigit = contract.exitDigit,
-                                        profitLoss = contract.profit,
-                                        status = mainStatus
-                                    )
-                                    activePendingTrades.removeAt(matchIndex)
-                                    tradeTicksRemaining.remove(pending.id)
-                                    // Save the resolution directly in ROOM SQLite
-                                    viewModelScope.launch(Dispatchers.IO) {
-                                        try {
-                                            db.tradeHistoryDao().updateTrade(resolvedTrade)
-                                            android.util.Log.d("TradeCorrelationListener", "Interlinked update: Contract ID ${contract.contractId} on ${contract.symbol} solved as $mainStatus. Profit: $${contract.profit}")
-                                        } catch (e: Exception) {
-                                            e.printStackTrace()
-                                        }
+                            if (processedOnChainContracts.add(contract.contractId)) {
+                                synchronized(activePendingTrades) {
+                                    val matchIndex = activePendingTrades.indexOfFirst { 
+                                        it.symbolCode == contract.symbol && it.status == "PENDING" 
                                     }
-
-                                    // Real-Chain Co-Pilot Session Auto Tracker integration
-                                    if (pending.tradeType == "AUTOMATED") {
-                                        val settings = _userSettings.value
-                                        val tradeProfit = contract.profit
-                                        val newSessionProfit = _autoSessionProfit.value + tradeProfit
-                                        _autoSessionProfit.value = newSessionProfit
-                                        _maxSessionProfit.value = maxOf(_maxSessionProfit.value, newSessionProfit)
-
-                                        var isTPReached = false
-                                        var isSLHit = false
-
-                                        if (newSessionProfit >= settings.autoTraderTakeProfit) {
-                                            isTPReached = true
-                                            _targetProfitReached.value = true
-                                        }
-
-                                        if (settings.autoTraderTrailingStopLoss) {
-                                            if (newSessionProfit < _maxSessionProfit.value - settings.autoTraderStopLoss) {
-                                                isSLHit = true
-                                                _stopLossHit.value = true
-                                            }
-                                        } else {
-                                            if (newSessionProfit <= -settings.autoTraderStopLoss) {
-                                                isSLHit = true
-                                                _stopLossHit.value = true
+                                    if (matchIndex != -1) {
+                                        val pending = activePendingTrades[matchIndex]
+                                        val resolvedTrade = pending.copy(
+                                            exitPrice = contract.bidPrice,
+                                            exitDigit = contract.exitDigit,
+                                            profitLoss = contract.profit,
+                                            status = mainStatus
+                                        )
+                                        activePendingTrades.removeAt(matchIndex)
+                                        tradeTicksRemaining.remove(pending.id)
+                                        // Save the resolution directly in ROOM SQLite
+                                        viewModelScope.launch(Dispatchers.IO) {
+                                            try {
+                                                db.tradeHistoryDao().updateTrade(resolvedTrade)
+                                                android.util.Log.d("TradeCorrelationListener", "Interlinked update: Contract ID ${contract.contractId} on ${contract.symbol} solved as $mainStatus. Profit: $${contract.profit}")
+                                            } catch (e: Exception) {
+                                                e.printStackTrace()
                                             }
                                         }
 
-                                        val shouldDisableAuto = isTPReached || isSLHit
-                                        if (shouldDisableAuto && settings.autoTraderEnabled) {
-                                            val updatedSettings = settings.copy(autoTraderEnabled = false)
-                                            viewModelScope.launch {
-                                                repository.saveSettings(updatedSettings)
-                                                _userSettings.value = updatedSettings
+                                        // Real-Chain Co-Pilot Session Auto Tracker integration
+                                        if (pending.tradeType == "AUTOMATED") {
+                                            val settings = _userSettings.value
+                                            val tradeProfit = contract.profit
+                                            val newSessionProfit = _autoSessionProfit.value + tradeProfit
+                                            _autoSessionProfit.value = newSessionProfit
+                                            _maxSessionProfit.value = maxOf(_maxSessionProfit.value, newSessionProfit)
+
+                                            var isTPReached = false
+                                            var isSLHit = false
+
+                                            if (newSessionProfit >= settings.autoTraderTakeProfit) {
+                                                isTPReached = true
+                                                _targetProfitReached.value = true
+                                            }
+
+                                            if (settings.autoTraderTrailingStopLoss) {
+                                                if (newSessionProfit < _maxSessionProfit.value - settings.autoTraderStopLoss) {
+                                                    isSLHit = true
+                                                    _stopLossHit.value = true
+                                                }
+                                            } else {
+                                                if (newSessionProfit <= -settings.autoTraderStopLoss) {
+                                                    isSLHit = true
+                                                    _stopLossHit.value = true
+                                                }
+                                            }
+
+                                            val shouldDisableAuto = isTPReached || isSLHit
+                                            if (shouldDisableAuto && settings.autoTraderEnabled) {
+                                                val updatedSettings = settings.copy(autoTraderEnabled = false)
+                                                viewModelScope.launch {
+                                                    repository.saveSettings(updatedSettings)
+                                                    _userSettings.value = updatedSettings
+                                                }
                                             }
                                         }
                                     }
@@ -1961,7 +1964,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
         // Deploy Auto Trader actual buy orders to live/demo Deriv system if enabled
         if (settings.autoTraderEnabled) {
             val computedStake = if (settings.autoTraderCompoundingStake) {
-                ((if (settings.isDemoAccount) settings.demoWalletBalance else settings.realWalletBalance) * 0.01).coerceAtLeast(1.0)
+                (getActiveTradingBalance(settings) * 0.01).coerceAtLeast(1.0)
             } else {
                 settings.autoTraderStake
             }
@@ -2004,6 +2007,17 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                     barrier = barrier,
                     stake = computedStake,
                     durationTicks = settings.virtualTradeCloseTicks
+                )
+            } else {
+                wsManager.publishTradeFeedback(
+                    com.example.data.DerivWebSocketManager.TradeFeedback(
+                        isError = false,
+                        title = "Auto-Pilot Trade Executed",
+                        message = "Copilot Automated Strategy has triggered buy order in virtual mode.\n" +
+                                  "Initial Stake: $$computedStake | Entry Price: $rawPrice (Entry Digit: $entryDigitVal)\n" +
+                                  "Awaiting resolution after ${settings.virtualTradeCloseTicks} ticks...",
+                        rawDetails = "Status: PENDING\nSymbol: $symbolCode\nContract Type: $contractType\nTarget Ticks: ${settings.virtualTradeCloseTicks}"
+                    )
                 )
             }
         }
@@ -2082,6 +2096,15 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
+    fun getActiveTradingBalance(settings: AppSettings): Double {
+        val live = wsManager.authorizedBalance.value
+        return if (settings.derivToken.isNotEmpty() && live != null) {
+            live
+        } else {
+            if (settings.isDemoAccount) settings.demoWalletBalance else settings.realWalletBalance
+        }
+    }
+
     fun executeManualTrade(
         symbolCode: String,
         displayName: String,
@@ -2094,7 +2117,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                 val settings = _userSettings.value
                 
                 // Balance protection check
-                val currentBalance = if (settings.isDemoAccount) settings.demoWalletBalance else settings.realWalletBalance
+                val currentBalance = getActiveTradingBalance(settings)
                 if (currentBalance < stake) {
                     _navErrorMessage.value = "Insufficient funds! Balance: $${String.format("%.2f", currentBalance)} | Stake: $${String.format("%.2f", stake)}"
                     triggerConflictWarningVibration()
@@ -2135,6 +2158,17 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                         barrier = barrier.toString(),
                         stake = stake,
                         durationTicks = settings.virtualTradeCloseTicks
+                    )
+                } else {
+                    wsManager.publishTradeFeedback(
+                        com.example.data.DerivWebSocketManager.TradeFeedback(
+                            isError = false,
+                            title = "Simulated Trade Executed",
+                            message = "Saved virtual/demo trade on $symbolCode ($contractType).\n" +
+                                      "Initial Stake: $$stake | Entry Price: $finalEntryPrice (Entry Digit: $entryDigitVal)\n" +
+                                      "Awaiting resolution after ${settings.virtualTradeCloseTicks} ticks...",
+                            rawDetails = "Trade ID: $dbId\nStatus: PENDING\nSymbol: $symbolCode\nContract Type: $contractType\nTarget Ticks: ${settings.virtualTradeCloseTicks}"
+                        )
                     )
                 }
                 
@@ -2261,6 +2295,20 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                             try {
                                 repository.saveSettings(updatedSettings)
                                 _userSettings.value = updatedSettings
+                                
+                                // Show settled visual popup feedback
+                                wsManager.publishTradeFeedback(
+                                    com.example.data.DerivWebSocketManager.TradeFeedback(
+                                        isError = false,
+                                        isWin = won,
+                                        title = if (won) "Virtual Trade Settled: WIN! 🏆" else "Virtual Trade Settled: LOSS ⚠️",
+                                        message = "Simulated Contract on ${trade.symbolCode} resolved as ${if (won) "WIN" else "LOSS"}.\n" +
+                                                  "Initial Stake: $${String.format("%.2f", trade.stake)} | Profit/Loss: $${String.format("%.2f", profitLossVal)}\n" +
+                                                  "Exit Digit: $exitDigitVal",
+                                        rawDetails = "Trade ID: ${trade.id}\nStatus: ${if (won) "WIN" else "LOSS"}\nProfit/Loss: $profitLossVal\nExit Digit: $exitDigitVal"
+                                    )
+                                )
+
                                 if (won) {
                                     triggerDoubleVibration()
                                 } else {

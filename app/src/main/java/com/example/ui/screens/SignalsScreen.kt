@@ -73,6 +73,8 @@ fun SignalsScreen(
     var customContractType by remember { mutableStateOf("UNDER") }
     var customBarrier by remember { mutableStateOf(4) }
     var customConfigExpanded by remember { mutableStateOf(false) } // Default: collapsed to lift EXECUTE button into view
+    var assetSelectorExpanded by remember { mutableStateOf(false) }
+    var customSubTab by remember { mutableStateOf("MATCHES/DIFFERS") }
 
     var showTokenPromptDialog by remember { mutableStateOf(false) }
     var tokenPromptAction by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -787,13 +789,22 @@ fun SignalsScreen(
                         Button(
                             onClick = {
                                 haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                                viewModel.executeManualTrade(
-                                    symbolCode = "1HZ100V",
-                                    displayName = "Volatility 100 (1s) Index",
-                                    contractType = "EVEN",
-                                    barrier = 0,
-                                    stake = stakeInput.toDoubleOrNull() ?: 5.0
-                                )
+                                val runAction = {
+                                    viewModel.executeManualTrade(
+                                        symbolCode = "1HZ100V",
+                                        displayName = "Volatility 100 (1s) Index",
+                                        contractType = "EVEN",
+                                        barrier = 0,
+                                        stake = stakeInput.toDoubleOrNull() ?: 5.0
+                                    )
+                                }
+                                if (userSettings.derivToken.isEmpty()) {
+                                    tokenInputText = ""
+                                    tokenPromptAction = runAction
+                                    showTokenPromptDialog = true
+                                } else {
+                                    runAction()
+                                }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
                             shape = RoundedCornerShape(12.dp),
@@ -805,13 +816,22 @@ fun SignalsScreen(
                         Button(
                             onClick = {
                                 haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                                viewModel.executeManualTrade(
-                                    symbolCode = "1HZ100V",
-                                    displayName = "Volatility 100 (1s) Index",
-                                    contractType = "ODD",
-                                    barrier = 0,
-                                    stake = stakeInput.toDoubleOrNull() ?: 5.0
-                                )
+                                val runAction = {
+                                    viewModel.executeManualTrade(
+                                        symbolCode = "1HZ100V",
+                                        displayName = "Volatility 100 (1s) Index",
+                                        contractType = "ODD",
+                                        barrier = 0,
+                                        stake = stakeInput.toDoubleOrNull() ?: 5.0
+                                    )
+                                }
+                                if (userSettings.derivToken.isEmpty()) {
+                                    tokenInputText = ""
+                                    tokenPromptAction = runAction
+                                    showTokenPromptDialog = true
+                                } else {
+                                    runAction()
+                                }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF97316)),
                             shape = RoundedCornerShape(12.dp),
@@ -2348,121 +2368,395 @@ fun SignalsScreen(
                                 if (customConfigExpanded) {
                                     // Manual Config Grid
                                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        // Symbol selector
+                                        // Collapsible Symbol selector
                                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            Text("TARGET MARKET ASSET", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
                                             Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(Color.White.copy(alpha = 0.02f))
+                                                    .border(0.5.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(6.dp))
+                                                    .clickable { assetSelectorExpanded = !assetSelectorExpanded }
+                                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                val symbols = listOf("1HZ10V" to "V10 (1s)", "1HZ25V" to "V25 (1s)", "1HZ50V" to "V50 (1s)", "1HZ75V" to "V75 (1s)", "1HZ100V" to "V100 (1s)")
-                                                symbols.forEach { (code, name) ->
-                                                    val sel = targetSymbol == code
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .weight(1f)
-                                                            .clip(RoundedCornerShape(6.dp))
-                                                            .background(if (sel) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f))
-                                                            .border(0.5.dp, if (sel) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.05f), RoundedCornerShape(6.dp))
-                                                            .clickable { 
-                                                                viewModel.selectSymbol(code)
-                                                            }
-                                                            .padding(vertical = 6.dp),
-                                                        contentAlignment = Alignment.Center
-                                                    ) {
-                                                        Text(name, color = if (sel) Color.White else Color.Gray, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                                val assetName = when (targetSymbol) {
+                                                    "1HZ10V" -> "Volatility 10 (1s) Index"
+                                                    "1HZ25V" -> "Volatility 25 (1s) Index"
+                                                    "1HZ50V" -> "Volatility 50 (1s) Index"
+                                                    "1HZ75V" -> "Volatility 75 (1s) Index"
+                                                    "1HZ100V" -> "Volatility 100 (1s) Index"
+                                                    else -> "Volatility 100 (1s) Index"
+                                                }
+                                                Text("ACTIVE MARKET: $assetName", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                                Text(if (assetSelectorExpanded) "CLOSE ▲" else "CHANGE ▼", color = MaterialTheme.colorScheme.primary, fontSize = 8.sp, fontWeight = FontWeight.ExtraBold, fontFamily = FontFamily.Monospace)
+                                            }
+
+                                            if (assetSelectorExpanded) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    val symbols = listOf("1HZ10V" to "V10 (1s)", "1HZ25V" to "V25 (1s)", "1HZ50V" to "V50 (1s)", "1HZ75V" to "V75 (1s)", "1HZ100V" to "V100 (1s)")
+                                                    symbols.forEach { (code, name) ->
+                                                        val sel = targetSymbol == code
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .weight(1f)
+                                                                .clip(RoundedCornerShape(6.dp))
+                                                                .background(if (sel) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f))
+                                                                .border(0.5.dp, if (sel) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.05f), RoundedCornerShape(6.dp))
+                                                                .clickable { 
+                                                                    viewModel.selectSymbol(code)
+                                                                    assetSelectorExpanded = false
+                                                                }
+                                                                .padding(vertical = 6.dp),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Text(name, color = if (sel) Color.White else Color.Gray, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                                        }
                                                     }
                                                 }
                                             }
                                         }
 
-                                        // Contract Type Selector Row
+                                        // Modern contract categories sub-tabs
                                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            Text("CONTRACT CATEGORY STYLE", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                            Text("SELECT CONTRACT STYLE", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
                                             Row(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .horizontalScroll(rememberScrollState()),
                                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
-                                                val types = listOf(
-                                                    "UNDER", "OVER", "MATCHES", "DIFFERS", "EVEN", "ODD", 
-                                                    "RISE", "FALL", "ACCUM", "ASIANU", "ASIAND", "CALL", "PUT"
+                                                val tabs = listOf(
+                                                    "MATCHES/DIFFERS" to "🎯 DIGITS",
+                                                    "OVER/UNDER" to "📏 BARRIERS",
+                                                    "EVEN/ODD" to "🔢 EVEN/ODD",
+                                                    "RISE/FALL" to "📈 RISE/FALL",
+                                                    "ACCUMULATORS" to "🔋 ACCUM",
+                                                    "ASIANS" to "🌏 ASIANS"
                                                 )
-                                                types.forEach { type ->
-                                                    val sel = customContractType == type
+                                                tabs.forEach { (tabId, label) ->
+                                                    val sel = customSubTab == tabId
                                                     Box(
                                                         modifier = Modifier
                                                             .clip(RoundedCornerShape(6.dp))
                                                             .background(if (sel) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f))
                                                             .border(0.5.dp, if (sel) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.05f), RoundedCornerShape(6.dp))
-                                                            .clickable { customContractType = type }
-                                                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                                                            .clickable { 
+                                                                customSubTab = tabId
+                                                                // Auto select default contract types for newly active screen
+                                                                customContractType = when(tabId) {
+                                                                    "MATCHES/DIFFERS" -> "MATCHES"
+                                                                    "OVER/UNDER" -> "OVER"
+                                                                    "EVEN/ODD" -> "EVEN"
+                                                                    "RISE/FALL" -> "RISE"
+                                                                    "ACCUMULATORS" -> "ACCUM"
+                                                                    "ASIANS" -> "ASIANU"
+                                                                    else -> "MATCHES"
+                                                                }
+                                                            }
+                                                            .padding(horizontal = 10.dp, vertical = 6.dp),
                                                         contentAlignment = Alignment.Center
                                                     ) {
-                                                        Text(type, color = if (sel) Color.White else Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                                        Text(label, color = if (sel) Color.White else Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
                                                     }
                                                 }
                                             }
                                         }
 
-                                        // Dynamic Barrier/Param Select (Only if applicable)
-                                        val needsBarrier = customContractType in listOf("UNDER", "OVER", "MATCHES", "DIFFERS")
-                                        val needsGrowthRate = customContractType == "ACCUM"
-                                        
-                                        if (needsBarrier) {
-                                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                                val title = when (customContractType) {
-                                                    "UNDER" -> "UNDER TARGET BARRIER (STAKE PAYOUT EXITS < BARRIER)"
-                                                    "OVER" -> "OVER TARGET BARRIER (STAKE PAYOUT EXITS > BARRIER)"
-                                                    "MATCHES" -> "MATCHING DIGIT REQUIREMENT"
-                                                    else -> "DIFFERS EXCLUDED DIGIT MATCH"
-                                                }
-                                                Text(title, color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                                ) {
-                                                    val start = if (customContractType == "UNDER") 1 else 0
-                                                    val end = if (customContractType == "OVER") 8 else 9
-                                                    for (b in start..end) {
-                                                        val sel = customBarrier == b
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .weight(1f)
-                                                                .clip(RoundedCornerShape(4.dp))
-                                                                .background(if (sel) Color(0xFFF97316).copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f))
-                                                                .border(0.5.dp, if (sel) Color(0xFFF97316) else Color.White.copy(alpha = 0.05f), RoundedCornerShape(4.dp))
-                                                                .clickable { customBarrier = b }
-                                                                .padding(vertical = 8.dp),
-                                                            contentAlignment = Alignment.Center
+                                        // Render individual dedicated sub-screen container based on selected category style
+                                        Card(
+                                            shape = RoundedCornerShape(8.dp),
+                                            colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.015f)),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .border(0.5.dp, Color.White.copy(alpha = 0.03f), RoundedCornerShape(8.dp))
+                                        ) {
+                                            Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                when(customSubTab) {
+                                                    "MATCHES/DIFFERS" -> {
+                                                        // Sub-screen for Digit Matches/Differs
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                                                         ) {
-                                                            Text("$b", color = if (sel) Color.White else Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                                                            listOf("MATCHES" to "🎯 MATCHES (800% PAYOUT)", "DIFFERS" to "🛡️ DIFFERS (10% PAYOUT)").forEach { (t, lbl) ->
+                                                                val sel = customContractType == t
+                                                                Box(
+                                                                    modifier = Modifier
+                                                                        .weight(1f)
+                                                                        .clip(RoundedCornerShape(6.dp))
+                                                                        .background(if (sel) Color(0xFF10B981).copy(alpha = 0.15f) else Color.Transparent)
+                                                                        .border(0.5.dp, if (sel) Color(0xFF10B981) else Color.White.copy(alpha = 0.05f), RoundedCornerShape(6.dp))
+                                                                        .clickable { customContractType = t }
+                                                                        .padding(vertical = 8.dp),
+                                                                    contentAlignment = Alignment.Center
+                                                                ) {
+                                                                    Text(lbl, color = if (sel) Color.White else Color.Gray, fontSize = 8.5.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                                                }
+                                                            }
+                                                        }
+
+                                                        Text(
+                                                            text = if (customContractType == "MATCHES") "SELECT DIGIT THAT CORRESPONDS TO THE TICK'S LAST DIGIT TO WIN"
+                                                                   else "SELECT DIGIT THAT THE TICK'S LAST DIGIT MUST NOT EQUAL TO WIN",
+                                                            color = Color.Gray,
+                                                            fontSize = 7.5.sp,
+                                                            fontFamily = FontFamily.Monospace
+                                                        )
+
+                                                        // High-density digit choice grid 0-9 with real-time percentages synced
+                                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                                for(dig in 0..4) {
+                                                                    val pct = percentages.getOrNull(dig) ?: 10.0f
+                                                                    val sel = customBarrier == dig
+                                                                    Box(
+                                                                        modifier = Modifier
+                                                                            .weight(1f)
+                                                                            .clip(RoundedCornerShape(6.dp))
+                                                                            .background(if (sel) Color(0xFFF97316).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.03f))
+                                                                            .border(0.5.dp, if (sel) Color(0xFFF97316) else Color.White.copy(alpha = 0.05f), RoundedCornerShape(6.dp))
+                                                                            .clickable { customBarrier = dig }
+                                                                            .padding(vertical = 6.dp),
+                                                                        contentAlignment = Alignment.Center
+                                                                    ) {
+                                                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                                            Text("$dig", color = if (sel) Color.White else Color.LightGray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                                            Text(String.format("%.1f%%", pct), color = if (sel) Color(0xFFF97316) else Color.Gray, fontSize = 7.sp, fontFamily = FontFamily.Monospace)
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                                for(dig in 5..9) {
+                                                                    val pct = percentages.getOrNull(dig) ?: 10.0f
+                                                                    val sel = customBarrier == dig
+                                                                    Box(
+                                                                        modifier = Modifier
+                                                                            .weight(1f)
+                                                                            .clip(RoundedCornerShape(6.dp))
+                                                                            .background(if (sel) Color(0xFFF97316).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.03f))
+                                                                            .border(0.5.dp, if (sel) Color(0xFFF97316) else Color.White.copy(alpha = 0.05f), RoundedCornerShape(6.dp))
+                                                                            .clickable { customBarrier = dig }
+                                                                            .padding(vertical = 6.dp),
+                                                                        contentAlignment = Alignment.Center
+                                                                    ) {
+                                                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                                            Text("$dig", color = if (sel) Color.White else Color.LightGray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                                            Text(String.format("%.1f%%", pct), color = if (sel) Color(0xFFF97316) else Color.Gray, fontSize = 7.sp, fontFamily = FontFamily.Monospace)
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
                                                         }
                                                     }
-                                                }
-                                            }
-                                        } else if (needsGrowthRate) {
-                                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                                Text("ACCUMULATOR TICK GROWTH RATE PERCENTAGE (%)", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                                ) {
-                                                    for (g in 1..5) {
-                                                        val sel = customBarrier == g
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .weight(1f)
-                                                                .clip(RoundedCornerShape(4.dp))
-                                                                .background(if (sel) Color(0xFFF97316).copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f))
-                                                                .border(0.5.dp, if (sel) Color(0xFFF97316) else Color.White.copy(alpha = 0.05f), RoundedCornerShape(4.dp))
-                                                                .clickable { customBarrier = g }
-                                                                .padding(vertical = 8.dp),
-                                                            contentAlignment = Alignment.Center
+                                                    "OVER/UNDER" -> {
+                                                        // Sub-screen for Over/Under
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                                                         ) {
-                                                            Text("$g%", color = if (sel) Color.White else Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                                                            listOf("OVER" to "📈 OVER", "UNDER" to "📉 UNDER").forEach { (t, lbl) ->
+                                                                val sel = customContractType == t
+                                                                Box(
+                                                                    modifier = Modifier
+                                                                        .weight(1f)
+                                                                        .clip(RoundedCornerShape(6.dp))
+                                                                        .background(if (sel) Color(0xFF3B82F6).copy(alpha = 0.15f) else Color.Transparent)
+                                                                        .border(0.5.dp, if (sel) Color(0xFF3B82F6) else Color.White.copy(alpha = 0.05f), RoundedCornerShape(6.dp))
+                                                                        .clickable { 
+                                                                            customContractType = t
+                                                                            // Enforce boundary compatibility
+                                                                            if (t == "OVER" && customBarrier == 9) customBarrier = 8
+                                                                            if (t == "UNDER" && customBarrier == 0) customBarrier = 1
+                                                                        }
+                                                                        .padding(vertical = 8.dp),
+                                                                    contentAlignment = Alignment.Center
+                                                                ) {
+                                                                    Text(lbl, color = if (sel) Color.White else Color.Gray, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                                                }
+                                                            }
                                                         }
+
+                                                        val title = if (customContractType == "OVER") "SELECT BARRIER (WIN IF LAST DIGIT > BARRIER)" else "SELECT BARRIER (WIN IF LAST DIGIT < BARRIER)"
+                                                        Text(title, color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+
+                                                        val start = if (customContractType == "UNDER") 1 else 0
+                                                        val end = if (customContractType == "OVER") 8 else 9
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                        ) {
+                                                            for (b in start..end) {
+                                                                val sel = customBarrier == b
+                                                                Box(
+                                                                    modifier = Modifier
+                                                                        .weight(1f)
+                                                                        .clip(RoundedCornerShape(4.dp))
+                                                                        .background(if (sel) Color(0xFFF97316).copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f))
+                                                                        .border(0.5.dp, if (sel) Color(0xFFF97316) else Color.White.copy(alpha = 0.05f), RoundedCornerShape(4.dp))
+                                                                        .clickable { customBarrier = b }
+                                                                        .padding(vertical = 8.dp),
+                                                                    contentAlignment = Alignment.Center
+                                                                ) {
+                                                                    Text("$b", color = if (sel) Color.White else Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    "EVEN/ODD" -> {
+                                                        // Sub-screen for Even/Odd digital modes
+                                                        Text("CONTRACT PREDICTION TARGET", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                        ) {
+                                                            val modes = listOf("EVEN" to "🔢 EVEN TICK LAST DIGIT", "ODD" to "🔢 ODD TICK LAST DIGIT")
+                                                            modes.forEach { (t, lbl) ->
+                                                                val sel = customContractType == t
+                                                                Box(
+                                                                    modifier = Modifier
+                                                                        .weight(1f)
+                                                                        .clip(RoundedCornerShape(6.dp))
+                                                                        .background(if (sel) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f))
+                                                                        .border(0.5.dp, if (sel) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.05f), RoundedCornerShape(6.dp))
+                                                                        .clickable { customContractType = t }
+                                                                        .padding(vertical = 12.dp),
+                                                                    contentAlignment = Alignment.Center
+                                                                ) {
+                                                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                                        Text(t, color = if (sel) Color.White else Color.LightGray, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                                                                        Text(lbl, color = Color.Gray, fontSize = 7.sp, fontFamily = FontFamily.Monospace)
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    "RISE/FALL" -> {
+                                                        // Sub-screen for Standard digital Call/Put Rise/Fall options
+                                                        Text("MARKET BIAS DIRECTION EXECUTOR", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                        ) {
+                                                            // Rise/Call option
+                                                            val isRise = customContractType == "RISE" || customContractType == "CALL"
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .weight(1f)
+                                                                    .clip(RoundedCornerShape(6.dp))
+                                                                    .background(if (isRise) Color(0xFF10B981).copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f))
+                                                                    .border(0.5.dp, if (isRise) Color(0xFF10B981) else Color.White.copy(alpha = 0.05f), RoundedCornerShape(6.dp))
+                                                                    .clickable { customContractType = "RISE" }
+                                                                    .padding(vertical = 12.dp),
+                                                                contentAlignment = Alignment.Center
+                                                            ) {
+                                                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                                    Text("▲ RISE / CALL", color = Color(0xFF34D399), fontSize = 11.sp, fontWeight = FontWeight.Black)
+                                                                    Text("Payout ~95%", color = Color.Gray, fontSize = 7.5.sp, fontFamily = FontFamily.Monospace)
+                                                                }
+                                                            }
+
+                                                            // Fall/Put option
+                                                            val isFall = customContractType == "FALL" || customContractType == "PUT"
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .weight(1f)
+                                                                    .clip(RoundedCornerShape(6.dp))
+                                                                    .background(if (isFall) Color(0xFFEF4444).copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f))
+                                                                    .border(0.5.dp, if (isFall) Color(0xFFEF4444) else Color.White.copy(alpha = 0.05f), RoundedCornerShape(6.dp))
+                                                                    .clickable { customContractType = "FALL" }
+                                                                    .padding(vertical = 12.dp),
+                                                                contentAlignment = Alignment.Center
+                                                            ) {
+                                                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                                    Text("▼ FALL / PUT", color = Color(0xFFF87171), fontSize = 11.sp, fontWeight = FontWeight.Black)
+                                                                    Text("Payout ~95%", color = Color.Gray, fontSize = 7.5.sp, fontFamily = FontFamily.Monospace)
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    "ACCUMULATORS" -> {
+                                                        // Sub-screen for Accumulators
+                                                        Text("ACCUMULATOR TICK GROWTH RATE PERCENTAGE (%)", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                        ) {
+                                                            for (g in 1..5) {
+                                                                val sel = customBarrier == g
+                                                                Box(
+                                                                    modifier = Modifier
+                                                                        .weight(1f)
+                                                                        .clip(RoundedCornerShape(4.dp))
+                                                                        .background(if (sel) Color(0xFFF97316).copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f))
+                                                                        .border(0.5.dp, if (sel) Color(0xFFF97316) else Color.White.copy(alpha = 0.05f), RoundedCornerShape(4.dp))
+                                                                        .clickable { customBarrier = g }
+                                                                        .padding(vertical = 8.dp),
+                                                                    contentAlignment = Alignment.Center
+                                                                ) {
+                                                                    Text("$g%", color = if (sel) Color.White else Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                                                                }
+                                                            }
+                                                        }
+                                                        Text(
+                                                            text = "💡 Grows exponentially on every tick unless it breaches boundary limit. Higher growth rate equals faster yield but tighter crash margins.",
+                                                            color = Color.Gray,
+                                                            fontSize = 7.5.sp,
+                                                            fontFamily = FontFamily.Monospace
+                                                        )
+                                                    }
+                                                    "ASIANS" -> {
+                                                        // Sub-screen for Asians contracts
+                                                        Text("SELECT ASIAN BOUNDARY DIRECTION", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                        ) {
+                                                            val isAsianU = customContractType == "ASIANU"
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .weight(1f)
+                                                                    .clip(RoundedCornerShape(6.dp))
+                                                                    .background(if (isAsianU) Color(0xFF3B82F6).copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f))
+                                                                    .border(0.5.dp, if (isAsianU) Color(0xFF3B82F6) else Color.White.copy(alpha = 0.05f), RoundedCornerShape(6.dp))
+                                                                    .clickable { customContractType = "ASIANU" }
+                                                                    .padding(vertical = 12.dp),
+                                                                contentAlignment = Alignment.Center
+                                                            ) {
+                                                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                                    Text("🌏 ASIAN UP", color = Color(0xFF60A5FA), fontSize = 11.sp, fontWeight = FontWeight.Black)
+                                                                    Text("Avg tick > entry", color = Color.Gray, fontSize = 7.5.sp, fontFamily = FontFamily.Monospace)
+                                                                }
+                                                            }
+
+                                                            val isAsianD = customContractType == "ASIAND"
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .weight(1f)
+                                                                    .clip(RoundedCornerShape(6.dp))
+                                                                    .background(if (isAsianD) Color(0xFF3B82F6).copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f))
+                                                                    .border(0.5.dp, if (isAsianD) Color(0xFF3B82F6) else Color.White.copy(alpha = 0.05f), RoundedCornerShape(6.dp))
+                                                                    .clickable { customContractType = "ASIAND" }
+                                                                    .padding(vertical = 12.dp),
+                                                                contentAlignment = Alignment.Center
+                                                            ) {
+                                                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                                    Text("🌏 ASIAN DOWN", color = Color(0xFF3B82F6), fontSize = 11.sp, fontWeight = FontWeight.Black)
+                                                                    Text("Avg tick < entry", color = Color.Gray, fontSize = 7.5.sp, fontFamily = FontFamily.Monospace)
+                                                                }
+                                                            }
+                                                        }
+                                                        Text(
+                                                            text = "💡 Asian contracts compare the average of all ticks in the duration against the starting or ending reference tick.",
+                                                            color = Color.Gray,
+                                                            fontSize = 7.5.sp,
+                                                            fontFamily = FontFamily.Monospace
+                                                        )
                                                     }
                                                 }
                                             }
