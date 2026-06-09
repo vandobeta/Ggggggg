@@ -1047,6 +1047,19 @@ class DerivWebSocketManager {
     }
 
     fun sendBuyRequest(symbol: String, contractType: String, barrier: String, stake: Double, durationTicks: Int = 2) {
+        val state = _connectionState.value
+        if (state != "AUTHORIZED") {
+            _tradeFeedbackFlow.value = TradeFeedback(
+                isError = true,
+                title = "NOT AUTHORIZED ⚠️",
+                message = "The trade request could not be executed because your Deriv account is not authorized or is offline.\n\n" +
+                          "Current State: $state\n\n" +
+                          "Please ensure a valid Deriv API token is configured in Settings and that your network connection is active.",
+                rawDetails = "State: $state\nSymbol: $symbol\nContract: $contractType"
+            )
+            return
+        }
+
         val mappedContractType = when (contractType.uppercase().trim()) {
             "EVEN", "DIGITEVEN" -> "DIGITEVEN"
             "ODD", "DIGITODD" -> "DIGITODD"
@@ -1062,6 +1075,16 @@ class DerivWebSocketManager {
             else -> contractType.uppercase().trim()
         }
         
+        // Immediately notify UI that the trade transmission has started
+        _tradeFeedbackFlow.value = TradeFeedback(
+            isError = false,
+            title = "Trade Initiated On-Chain 🚀",
+            message = "Transmitting purchase proposal for $mappedContractType on $symbol...\n" +
+                      "Initial Stake: $$stake | Duration: $durationTicks Ticks\n" +
+                      "Generating contract terms with Deriv server...",
+            rawDetails = "STATUS: INITIALIZED\nSymbol: $symbol\nContractType: $mappedContractType\nDurationTicks: $durationTicks\nStake: $stake"
+        )
+
         addLog("Transmitting proposal request for contract: $mappedContractType on $symbol (barrier: $barrier, stake: $stake, duration: $durationTicks t)", "OUTBOUND")
         val ws = webSocket
         if (ws != null) {

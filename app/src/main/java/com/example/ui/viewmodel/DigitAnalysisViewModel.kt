@@ -1963,6 +1963,24 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
 
         // Deploy Auto Trader actual buy orders to live/demo Deriv system if enabled
         if (settings.autoTraderEnabled) {
+            if (settings.derivToken.isEmpty()) {
+                wsManager.publishTradeFeedback(
+                    com.example.data.DerivWebSocketManager.TradeFeedback(
+                        isError = true,
+                        title = "AUTOMATED TRADE BLOCKED ⚠️",
+                        message = "Copilot Auto-Pilot trade was blocked because there is no Deriv API Token configured.\n" +
+                                  "Please set up a valid Api Token in Settings to make real money.",
+                        rawDetails = "Token: EMPTY"
+                    )
+                )
+                viewModelScope.launch {
+                    val corrected = settings.copy(autoTraderEnabled = false)
+                    repository.saveSettings(corrected)
+                    _userSettings.value = corrected
+                }
+                return
+            }
+
             val computedStake = if (settings.autoTraderCompoundingStake) {
                 (getActiveTradingBalance(settings) * 0.01).coerceAtLeast(1.0)
             } else {
@@ -2000,26 +2018,13 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                 }
             }
 
-            if (settings.derivToken.isNotEmpty()) {
-                wsManager.sendBuyRequest(
-                    symbol = symbolCode,
-                    contractType = contractType,
-                    barrier = barrier,
-                    stake = computedStake,
-                    durationTicks = settings.virtualTradeCloseTicks
-                )
-            } else {
-                wsManager.publishTradeFeedback(
-                    com.example.data.DerivWebSocketManager.TradeFeedback(
-                        isError = false,
-                        title = "Auto-Pilot Trade Executed",
-                        message = "Copilot Automated Strategy has triggered buy order in virtual mode.\n" +
-                                  "Initial Stake: $$computedStake | Entry Price: $rawPrice (Entry Digit: $entryDigitVal)\n" +
-                                  "Awaiting resolution after ${settings.virtualTradeCloseTicks} ticks...",
-                        rawDetails = "Status: PENDING\nSymbol: $symbolCode\nContract Type: $contractType\nTarget Ticks: ${settings.virtualTradeCloseTicks}"
-                    )
-                )
-            }
+            wsManager.sendBuyRequest(
+                symbol = symbolCode,
+                contractType = contractType,
+                barrier = barrier,
+                stake = computedStake,
+                durationTicks = settings.virtualTradeCloseTicks
+            )
         }
 
         viewModelScope.launch(Dispatchers.IO) {
@@ -2116,6 +2121,19 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
             try {
                 val settings = _userSettings.value
                 
+                if (settings.derivToken.isEmpty()) {
+                    wsManager.publishTradeFeedback(
+                        com.example.data.DerivWebSocketManager.TradeFeedback(
+                            isError = true,
+                            title = "TOKEN REQUIRED ⚠️",
+                            message = "Placing a trade requires a valid Deriv API Token.\nSimulation/Virtual mode is disabled.\n\nPlease enter your API Token in the settings panel to execute trades with real money.",
+                            rawDetails = "Token: EMPTY"
+                        )
+                    )
+                    triggerConflictWarningVibration()
+                    return@launch
+                }
+
                 // Balance protection check
                 val currentBalance = getActiveTradingBalance(settings)
                 if (currentBalance < stake) {
@@ -2151,26 +2169,13 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                     activePendingTrades.add(freshManualTrade.copy(id = dbId))
                 }
 
-                if (settings.derivToken.isNotEmpty()) {
-                    wsManager.sendBuyRequest(
-                        symbol = symbolCode,
-                        contractType = contractType,
-                        barrier = barrier.toString(),
-                        stake = stake,
-                        durationTicks = settings.virtualTradeCloseTicks
-                    )
-                } else {
-                    wsManager.publishTradeFeedback(
-                        com.example.data.DerivWebSocketManager.TradeFeedback(
-                            isError = false,
-                            title = "Simulated Trade Executed",
-                            message = "Saved virtual/demo trade on $symbolCode ($contractType).\n" +
-                                      "Initial Stake: $$stake | Entry Price: $finalEntryPrice (Entry Digit: $entryDigitVal)\n" +
-                                      "Awaiting resolution after ${settings.virtualTradeCloseTicks} ticks...",
-                            rawDetails = "Trade ID: $dbId\nStatus: PENDING\nSymbol: $symbolCode\nContract Type: $contractType\nTarget Ticks: ${settings.virtualTradeCloseTicks}"
-                        )
-                    )
-                }
+                wsManager.sendBuyRequest(
+                    symbol = symbolCode,
+                    contractType = contractType,
+                    barrier = barrier.toString(),
+                    stake = stake,
+                    durationTicks = settings.virtualTradeCloseTicks
+                )
                 
                 triggerDoubleVibration()
             } catch (e: Exception) {
