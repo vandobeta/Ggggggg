@@ -105,6 +105,8 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
     private val _dualVectorState = MutableStateFlow<DualVectorState?>(null)
     val dualVectorState: StateFlow<DualVectorState?> = _dualVectorState.asStateFlow()
 
+    private var hasAttemptedStartupAuth = false
+
     fun resetAutoTraderSession() {
         _autoSessionProfit.value = 0.0
         _maxSessionProfit.value = 0.0
@@ -355,6 +357,21 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
         observeTradeHistory()
         startSignalsLoop()
 
+        // High-frequency signal self-destruction monitor (shadow trade prevention)
+        viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(1000)
+                val active = _activeSignal.value
+                if (active != null) {
+                    val age = System.currentTimeMillis() - active.timestamp
+                    if (age > 15000L) { // 15 seconds expiry metric
+                        _activeSignal.value = null
+                        android.util.Log.d("DigitAnalysisViewModel", "Failsafe: Auto co-pilot signal self-destruction triggered. Active signal aged ${age}ms discarded.")
+                    }
+                }
+            }
+        }
+
         // Sync real-time balance from secure WebSocket directly to local DB
         viewModelScope.launch {
             wsManager.authorizedBalance.collect { balance ->
@@ -470,6 +487,14 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                     lastObservedSessionsPerDay = settings.sessionsPerDay
                     
                     recalculateAllStates()
+                    
+                    // Securely auto-authorize saved token on app start/reconnect
+                    if (!hasAttemptedStartupAuth && settings.derivToken.isNotEmpty()) {
+                        hasAttemptedStartupAuth = true
+                        android.util.Log.d("DigitAnalysisViewModel", "🚀 Auto-authorizing on app startup using saved secure token...")
+                        wsManager.sendAuthorizeRequest(settings.derivToken)
+                    }
+
                     if (oldRiskProfile != null && oldRiskProfile != settings.riskProfile) {
                         generateFreshSignal()
                         startSignalsLoop()
@@ -1585,11 +1610,27 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
             return
         }
 
+        // Parity gate checker: Only trigger a signal if Odd vs Even percentage gap is > 20%
+        val totalTicks = history.size
+        val evenCount = history.count { it % 2 == 0 }
+        val oddCount = totalTicks - evenCount
+        val evenPct = (evenCount.toFloat() / totalTicks.coerceAtLeast(1)) * 100f
+        val oddPct = (oddCount.toFloat() / totalTicks.coerceAtLeast(1)) * 100f
+        val parityDiff = kotlin.math.abs(evenPct - oddPct)
+        
+        if (parityDiff <= 20f) {
+            _activeSignal.value = null
+            _entryTriggerAwaiting.value = false
+            android.util.Log.d("DigitAnalysisViewModel", "Parity Gap Filter: Odd to Even difference is too narrow (${String.format("%.1f%%", parityDiff)} <= 20%). Skipping signal.")
+            return
+        }
+
         val vecState = _dualVectorState.value
         val hasEntryTrigger = vecState != null && vecState.entryTriggerPassed
         
         _entryTriggerAwaiting.value = !hasEntryTrigger
         if (!hasEntryTrigger) {
+            _activeSignal.value = null // Discard active signal immediately on entry failure
             android.util.Log.d("DigitAnalysisViewModel", "Entry Trigger Filter: Dual vector condition not met. Awaiting convergence...")
             return
         }
