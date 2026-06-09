@@ -107,6 +107,10 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
 
     private var hasAttemptedStartupAuth = false
 
+    fun refreshDerivBalance() {
+        wsManager.requestBalanceRefresh()
+    }
+
     fun resetAutoTraderSession() {
         _autoSessionProfit.value = 0.0
         _maxSessionProfit.value = 0.0
@@ -339,6 +343,44 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                                             android.util.Log.d("TradeCorrelationListener", "Interlinked update: Contract ID ${contract.contractId} on ${contract.symbol} solved as $mainStatus. Profit: $${contract.profit}")
                                         } catch (e: Exception) {
                                             e.printStackTrace()
+                                        }
+                                    }
+
+                                    // Real-Chain Co-Pilot Session Auto Tracker integration
+                                    if (pending.tradeType == "AUTOMATED") {
+                                        val settings = _userSettings.value
+                                        val tradeProfit = contract.profit
+                                        val newSessionProfit = _autoSessionProfit.value + tradeProfit
+                                        _autoSessionProfit.value = newSessionProfit
+                                        _maxSessionProfit.value = maxOf(_maxSessionProfit.value, newSessionProfit)
+
+                                        var isTPReached = false
+                                        var isSLHit = false
+
+                                        if (newSessionProfit >= settings.autoTraderTakeProfit) {
+                                            isTPReached = true
+                                            _targetProfitReached.value = true
+                                        }
+
+                                        if (settings.autoTraderTrailingStopLoss) {
+                                            if (newSessionProfit < _maxSessionProfit.value - settings.autoTraderStopLoss) {
+                                                isSLHit = true
+                                                _stopLossHit.value = true
+                                            }
+                                        } else {
+                                            if (newSessionProfit <= -settings.autoTraderStopLoss) {
+                                                isSLHit = true
+                                                _stopLossHit.value = true
+                                            }
+                                        }
+
+                                        val shouldDisableAuto = isTPReached || isSLHit
+                                        if (shouldDisableAuto && settings.autoTraderEnabled) {
+                                            val updatedSettings = settings.copy(autoTraderEnabled = false)
+                                            viewModelScope.launch {
+                                                repository.saveSettings(updatedSettings)
+                                                _userSettings.value = updatedSettings
+                                            }
                                         }
                                     }
                                 }
@@ -1432,9 +1474,9 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                     signal.isWin = won
                     signal.exitDigit = incomingDigit
 
-                    // Process Auto Trader Results
+                    // Process Auto Trader Results (only if virtual backtesting / simulating without token)
                     val settings = _userSettings.value
-                    if (settings.autoTraderEnabled) {
+                    if (settings.autoTraderEnabled && settings.derivToken.isEmpty()) {
                         val actualStake = if (settings.autoTraderCompoundingStake) {
                             (settings.derivWalletBalance * 0.01).coerceAtLeast(1.0)
                         } else {
@@ -2135,6 +2177,12 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
     }
 
     fun processTradeHistoryOnNewTick(symbol: String, incomingDigit: Int) {
+        val settings = _userSettings.value
+        if (settings.derivToken.isNotEmpty()) {
+            // When there is a real token, trades are executed real-time on-chain.
+            // Do NOT resolve them locally using fake tick-based guessing.
+            return
+        }
         synchronized(activePendingTrades) {
             val iterator = activePendingTrades.iterator()
             while (iterator.hasNext()) {

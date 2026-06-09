@@ -36,6 +36,10 @@ fun SettingsScreen(
     val triggeredToday by viewModel.triggeredSignalsToday.collectAsState()
     val scrollState = rememberScrollState()
 
+    LaunchedEffect(Unit) {
+        viewModel.refreshDerivBalance()
+    }
+
     val backgroundBrush = Brush.verticalGradient(
         colors = listOf(
             MaterialTheme.colorScheme.background,
@@ -124,13 +128,27 @@ fun SettingsScreen(
                     ) {
                         Column {
                             Text("CO-PILOT WALLET BALANCE", color = Color.Gray, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
-                            Text(
-                                text = String.format("$%.2f %s", userSettings.derivWalletBalance, userSettings.currency.uppercase()),
-                                color = Color.White,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = String.format("$%.2f %s", userSettings.derivWalletBalance, userSettings.currency.uppercase()),
+                                    color = Color.White,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                IconButton(
+                                    onClick = { viewModel.refreshDerivBalance() },
+                                    modifier = Modifier.size(24.dp).testTag("refresh_balance_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = "Sync Balance",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
                         }
                         val context = androidx.compose.ui.platform.LocalContext.current
                         Button(

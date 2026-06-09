@@ -63,11 +63,16 @@ fun SignalsScreen(
     var activeTab by remember { mutableStateOf("ALL") } // "ALL" dashboard as default experience
     var paramsExpanded by remember { mutableStateOf(false) } // Collapse state for retractable stake & tick selector
 
+    LaunchedEffect(Unit) {
+        viewModel.refreshDerivBalance()
+    }
+
     var isCustomMode by remember { mutableStateOf(false) }
     val targetSymbol by viewModel.selectedSymbol.collectAsState()
     var stakeInput by remember(userSettings.stake) { mutableStateOf(userSettings.stake.toString()) }
     var customContractType by remember { mutableStateOf("UNDER") }
     var customBarrier by remember { mutableStateOf(4) }
+    var customConfigExpanded by remember { mutableStateOf(false) } // Default: collapsed to lift EXECUTE button into view
 
     var showTokenPromptDialog by remember { mutableStateOf(false) }
     var tokenPromptAction by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -2313,135 +2318,191 @@ fun SignalsScreen(
                             modifier = Modifier.padding(14.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Text(
-                                text = if (isCustomMode) "⚡ ABSOLUTE MANUAL CONTROL CONFIG" else "🤖 TACTICAL CO-PILOT PRESET ACTIVE",
-                                color = MaterialTheme.colorScheme.primary,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontFamily = FontFamily.Monospace
-                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .then(if (isCustomMode) Modifier.clickable { customConfigExpanded = !customConfigExpanded } else Modifier),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (isCustomMode) "⚡ ABSOLUTE MANUAL CONTROL CONFIG" else "🤖 TACTICAL CO-PILOT PRESET ACTIVE",
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontFamily = FontFamily.Monospace,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                if (isCustomMode) {
+                                    Text(
+                                        text = if (customConfigExpanded) "COLLAPSE ▲" else "EXPAND ▼",
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
 
                             if (isCustomMode) {
-                                // Manual Config Grid
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    // Symbol selector
-                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        Text("TARGET MARKET ASSET", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            val symbols = listOf("1HZ10V" to "V10 (1s)", "1HZ25V" to "V25 (1s)", "1HZ50V" to "V50 (1s)", "1HZ75V" to "V75 (1s)", "1HZ100V" to "V100 (1s)")
-                                            symbols.forEach { (code, name) ->
-                                                val sel = targetSymbol == code
-                                                Box(
-                                                    modifier = Modifier
-                                                        .weight(1f)
-                                                        .clip(RoundedCornerShape(6.dp))
-                                                        .background(if (sel) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f))
-                                                        .border(0.5.dp, if (sel) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.05f), RoundedCornerShape(6.dp))
-                                                        .clickable { 
-                                                            viewModel.selectSymbol(code)
+                                if (customConfigExpanded) {
+                                    // Manual Config Grid
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        // Symbol selector
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text("TARGET MARKET ASSET", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                val symbols = listOf("1HZ10V" to "V10 (1s)", "1HZ25V" to "V25 (1s)", "1HZ50V" to "V50 (1s)", "1HZ75V" to "V75 (1s)", "1HZ100V" to "V100 (1s)")
+                                                symbols.forEach { (code, name) ->
+                                                    val sel = targetSymbol == code
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .clip(RoundedCornerShape(6.dp))
+                                                            .background(if (sel) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f))
+                                                            .border(0.5.dp, if (sel) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.05f), RoundedCornerShape(6.dp))
+                                                            .clickable { 
+                                                                viewModel.selectSymbol(code)
+                                                            }
+                                                            .padding(vertical = 6.dp),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Text(name, color = if (sel) Color.White else Color.Gray, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Contract Type Selector Row
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text("CONTRACT CATEGORY STYLE", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .horizontalScroll(rememberScrollState()),
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                val types = listOf(
+                                                    "UNDER", "OVER", "MATCHES", "DIFFERS", "EVEN", "ODD", 
+                                                    "RISE", "FALL", "ACCUM", "ASIANU", "ASIAND", "CALL", "PUT"
+                                                )
+                                                types.forEach { type ->
+                                                    val sel = customContractType == type
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(6.dp))
+                                                            .background(if (sel) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f))
+                                                            .border(0.5.dp, if (sel) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.05f), RoundedCornerShape(6.dp))
+                                                            .clickable { customContractType = type }
+                                                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Text(type, color = if (sel) Color.White else Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Dynamic Barrier/Param Select (Only if applicable)
+                                        val needsBarrier = customContractType in listOf("UNDER", "OVER", "MATCHES", "DIFFERS")
+                                        val needsGrowthRate = customContractType == "ACCUM"
+                                        
+                                        if (needsBarrier) {
+                                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                val title = when (customContractType) {
+                                                    "UNDER" -> "UNDER TARGET BARRIER (STAKE PAYOUT EXITS < BARRIER)"
+                                                    "OVER" -> "OVER TARGET BARRIER (STAKE PAYOUT EXITS > BARRIER)"
+                                                    "MATCHES" -> "MATCHING DIGIT REQUIREMENT"
+                                                    else -> "DIFFERS EXCLUDED DIGIT MATCH"
+                                                }
+                                                Text(title, color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    val start = if (customContractType == "UNDER") 1 else 0
+                                                    val end = if (customContractType == "OVER") 8 else 9
+                                                    for (b in start..end) {
+                                                        val sel = customBarrier == b
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .weight(1f)
+                                                                .clip(RoundedCornerShape(4.dp))
+                                                                .background(if (sel) Color(0xFFF97316).copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f))
+                                                                .border(0.5.dp, if (sel) Color(0xFFF97316) else Color.White.copy(alpha = 0.05f), RoundedCornerShape(4.dp))
+                                                                .clickable { customBarrier = b }
+                                                                .padding(vertical = 8.dp),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Text("$b", color = if (sel) Color.White else Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Black)
                                                         }
-                                                        .padding(vertical = 6.dp),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Text(name, color = if (sel) Color.White else Color.Gray, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                                    }
                                                 }
                                             }
-                                        }
-                                    }
-
-                                    // Contract Type Selector Row
-                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        Text("CONTRACT CATEGORY STYLE", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .horizontalScroll(rememberScrollState()),
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            val types = listOf(
-                                                "UNDER", "OVER", "MATCHES", "DIFFERS", "EVEN", "ODD", 
-                                                "RISE", "FALL", "ACCUM", "ASIANU", "ASIAND", "CALL", "PUT"
-                                            )
-                                            types.forEach { type ->
-                                                val sel = customContractType == type
-                                                Box(
-                                                    modifier = Modifier
-                                                        .clip(RoundedCornerShape(6.dp))
-                                                        .background(if (sel) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f))
-                                                        .border(0.5.dp, if (sel) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.05f), RoundedCornerShape(6.dp))
-                                                        .clickable { customContractType = type }
-                                                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                                                    contentAlignment = Alignment.Center
+                                        } else if (needsGrowthRate) {
+                                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                Text("ACCUMULATOR TICK GROWTH RATE PERCENTAGE (%)", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                                 ) {
-                                                    Text(type, color = if (sel) Color.White else Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    // Dynamic Barrier/Param Select (Only if applicable)
-                                    val needsBarrier = customContractType in listOf("UNDER", "OVER", "MATCHES", "DIFFERS")
-                                    val needsGrowthRate = customContractType == "ACCUM"
-                                    
-                                    if (needsBarrier) {
-                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            val title = when (customContractType) {
-                                                "UNDER" -> "UNDER TARGET BARRIER (STAKE PAYOUT EXITS < BARRIER)"
-                                                "OVER" -> "OVER TARGET BARRIER (STAKE PAYOUT EXITS > BARRIER)"
-                                                "MATCHES" -> "MATCHING DIGIT REQUIREMENT"
-                                                else -> "DIFFERS EXCLUDED DIGIT MATCH"
-                                            }
-                                            Text(title, color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                val start = if (customContractType == "UNDER") 1 else 0
-                                                val end = if (customContractType == "OVER") 8 else 9
-                                                for (b in start..end) {
-                                                    val sel = customBarrier == b
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .weight(1f)
-                                                            .clip(RoundedCornerShape(4.dp))
-                                                            .background(if (sel) Color(0xFFF97316).copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f))
-                                                            .border(0.5.dp, if (sel) Color(0xFFF97316) else Color.White.copy(alpha = 0.05f), RoundedCornerShape(4.dp))
-                                                            .clickable { customBarrier = b }
-                                                            .padding(vertical = 8.dp),
-                                                        contentAlignment = Alignment.Center
-                                                    ) {
-                                                        Text("$b", color = if (sel) Color.White else Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                                                    for (g in 1..5) {
+                                                        val sel = customBarrier == g
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .weight(1f)
+                                                                .clip(RoundedCornerShape(4.dp))
+                                                                .background(if (sel) Color(0xFFF97316).copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f))
+                                                                .border(0.5.dp, if (sel) Color(0xFFF97316) else Color.White.copy(alpha = 0.05f), RoundedCornerShape(4.dp))
+                                                                .clickable { customBarrier = g }
+                                                                .padding(vertical = 8.dp),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Text("$g%", color = if (sel) Color.White else Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                                                        }
                                                     }
                                                 }
                                             }
                                         }
-                                    } else if (needsGrowthRate) {
-                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            Text("ACCUMULATOR TICK GROWTH RATE PERCENTAGE (%)", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                for (g in 1..5) {
-                                                    val sel = customBarrier == g
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .weight(1f)
-                                                            .clip(RoundedCornerShape(4.dp))
-                                                            .background(if (sel) Color(0xFFF97316).copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f))
-                                                            .border(0.5.dp, if (sel) Color(0xFFF97316) else Color.White.copy(alpha = 0.05f), RoundedCornerShape(4.dp))
-                                                            .clickable { customBarrier = g }
-                                                            .padding(vertical = 8.dp),
-                                                        contentAlignment = Alignment.Center
-                                                    ) {
-                                                        Text("$g%", color = if (sel) Color.White else Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Black)
-                                                    }
-                                                }
-                                            }
-                                        }
+                                    }
+                                } else {
+                                    // Retracted Custom Config Summary
+                                    val assetName = when (targetSymbol) {
+                                        "1HZ10V" -> "V10 (1s)"
+                                        "1HZ25V" -> "V25 (1s)"
+                                        "1HZ50V" -> "V50 (1s)"
+                                        "1HZ75V" -> "V75 (1s)"
+                                        "1HZ100V" -> "V100 (1s)"
+                                        else -> "V100 (1s)"
+                                    }
+                                    val bTitle = when (customContractType) {
+                                        "UNDER" -> " | BARRIER: Under $customBarrier"
+                                        "OVER" -> " | BARRIER: Over $customBarrier"
+                                        "MATCHES" -> " | DIGIT: $customBarrier"
+                                        "DIFFERS" -> " | EXCLUDE: $customBarrier"
+                                        "ACCUM" -> " | GROWTH: $customBarrier%"
+                                        else -> ""
+                                    }
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(Color.White.copy(alpha = 0.02f))
+                                            .border(0.5.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(6.dp))
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "$assetName | $customContractType$bTitle",
+                                            color = Color.White,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace
+                                        )
                                     }
                                 }
                             } else {

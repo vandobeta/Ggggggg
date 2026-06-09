@@ -650,6 +650,19 @@ class DerivWebSocketManager {
                         addLog("Demo balance reset successful. New balance: $$balance", "INBOUND")
                     }
                 }
+            } else if (msgType == "balance") {
+                val balObj = json.optJSONObject("balance")
+                var balanceVal = Double.NaN
+                if (balObj != null) {
+                    balanceVal = balObj.optDouble("balance")
+                }
+                if (balanceVal.isNaN()) {
+                    balanceVal = json.optDouble("balance")
+                }
+                if (!balanceVal.isNaN()) {
+                    _authorizedBalance.value = balanceVal
+                    addLog("Live balance updated: $$balanceVal", "INBOUND")
+                }
             } else if (msgType == "authorize") {
                 val authObj = json.optJSONObject("authorize")
                 if (authObj != null) {
@@ -682,6 +695,11 @@ class DerivWebSocketManager {
                     _connectionState.value = "AUTHORIZED"
                     
                     addLog("Authorized context: $fullname ($email) | Virtual/Demo: $isVirtual | Balance: $$balance $currency | Scopes: $scopesList", "INBOUND")
+                    
+                    // Force balance updates subscription to be active immediately on legacy fallback
+                    webSocket?.let { ws ->
+                        subscribeToBalance(ws)
+                    }
                 }
             } else if (msgType == "buy") {
                 val buyObj = json.optJSONObject("buy")
@@ -829,6 +847,9 @@ class DerivWebSocketManager {
                               "Exit Digit: ${exitDigit ?: "unknown"}",
                     rawDetails = "Contract ID: $contractId\nStatus: $status\nProfit/Loss: $profit\nExit Digit: $exitDigit\nSymbol: $underlying\nContract Type: $contractType"
                 )
+                
+                // Refresh balance immediately to maintain accurate local user records after trade settles
+                requestBalanceRefresh()
             } else {
                 val activeList = _activeContracts.value.toMutableList()
                 val index = activeList.indexOfFirst { it.contractId == contractId }
@@ -1135,6 +1156,21 @@ class DerivWebSocketManager {
                 mainHandler.post {
                     onCompleted(true, null)
                 }
+            }
+        }
+    }
+
+    fun requestBalanceRefresh() {
+        val ws = webSocket
+        if (ws != null) {
+            try {
+                val json = JSONObject().apply {
+                    put("balance", 1)
+                }
+                ws.send(json.toString())
+                addLog("Sent manual live balance refresh request to Deriv WebSocket.", "OUTBOUND")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error requesting live balance refresh: ${e.message}")
             }
         }
     }

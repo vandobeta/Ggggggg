@@ -56,6 +56,10 @@ fun DerivLiveScreen(
     val timeFormatter = remember { SimpleDateFormat("HH:mm:ss.SSS", Locale.US) }
     var activeTab by remember { mutableStateOf("CONTRACTS") } // "CONTRACTS", "STATEMENT_LOGS", "HISTORY"
 
+    LaunchedEffect(Unit) {
+        viewModel.refreshDerivBalance()
+    }
+
     var manualTradingExpanded by remember { mutableStateOf(false) }
     var selectedSymbolCode by remember { mutableStateOf("1HZ100V") }
     val brokerSymbols = remember {
