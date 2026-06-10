@@ -99,6 +99,8 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
 
     private val entryTimingEngine = EntryTimingEngine()
     private val postSignalTicks = mutableListOf<Int>()
+    private var lastVibratedSignalId: String? = null
+    private var lastExecutedAutoSignalId: String? = null
 
     // --- INTEGRATED ENGINES & STATES ---
     private val accumulatorTradingEngine = AccumulatorTradingEngine()
@@ -120,6 +122,8 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
         _dynamicBarrierResult.value = null
         _trendReversalSignal.value = null
         postSignalTicks.clear()
+        lastVibratedSignalId = null
+        lastExecutedAutoSignalId = null
     }
 
     // --- AUTO TRADER ENGINE STATES ---
@@ -642,6 +646,65 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                         postSignalTicks.add(digit)
                         val timing = entryTimingEngine.evaluateEntryTiming(activeSignalVal, postSignalTicks.toList())
                         _entryTimingState.value = timing
+
+                        if (timing.isEntryReady) {
+                            // 1. Double Vibration alert for co-pilot / entry execution readiness
+                            if (lastVibratedSignalId != activeSignalVal.id) {
+                                lastVibratedSignalId = activeSignalVal.id
+                                triggerDoubleVibration()
+                            }
+
+                            // 2. Auto Trader action: Executes trade at the exact trigger millisecond
+                            val settings = _userSettings.value
+                            if (settings.autoTraderEnabled && lastExecutedAutoSignalId != activeSignalVal.id) {
+                                lastExecutedAutoSignalId = activeSignalVal.id
+
+                                val computedStake = if (settings.autoTraderCompoundingStake) {
+                                    (getActiveTradingBalance(settings) * 0.01).coerceAtLeast(1.0)
+                                } else {
+                                    settings.autoTraderStake
+                                }
+
+                                val rawPrice = wsManager.getLastPriceFor(symbol) ?: 1.0
+                                val priceStr = rawPrice.toString()
+                                val entryDigitVal = priceStr.substring(priceStr.length - 1).toIntOrNull() ?: 0
+
+                                val automatedPendingTrade = com.example.data.db.TradeHistory(
+                                    timestamp = System.currentTimeMillis(),
+                                    symbolCode = activeSignalVal.symbol,
+                                    displayName = activeSignalVal.displayName,
+                                    contractType = activeSignalVal.contractType,
+                                    barrierValue = activeSignalVal.barrier.toIntOrNull() ?: 5,
+                                    tradeType = "AUTOMATED",
+                                    accountType = if (settings.isDemoAccount) "DEMO" else "REAL",
+                                    stake = computedStake,
+                                    entryPrice = rawPrice,
+                                    entryDigit = entryDigitVal,
+                                    status = "PENDING"
+                                )
+
+                                viewModelScope.launch {
+                                    try {
+                                        val dbId = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                                            db.tradeHistoryDao().insertTrade(automatedPendingTrade)
+                                        }
+                                        synchronized(activePendingTrades) {
+                                            activePendingTrades.add(automatedPendingTrade.copy(id = dbId))
+                                        }
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                    }
+                                }
+
+                                wsManager.sendBuyRequest(
+                                    symbol = activeSignalVal.symbol,
+                                    contractType = activeSignalVal.contractType,
+                                    barrier = activeSignalVal.barrier,
+                                    stake = computedStake,
+                                    durationTicks = settings.virtualTradeCloseTicks
+                                )
+                            }
+                        }
                     }
 
                     // Real-time State Distribution: Pass calculated UnifiedTickState to single UI StateFlow container
@@ -2067,7 +2130,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
             targetTicks = settings.virtualTradeCloseTicks
         )
 
-        // Deploy Auto Trader actual buy orders to live/demo Deriv system if enabled
+        // Validate Auto Trader configuration if enabled
         if (settings.autoTraderEnabled) {
             if (settings.derivToken.isEmpty()) {
                 wsManager.publishTradeFeedback(
@@ -2086,51 +2149,6 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                 }
                 return
             }
-
-            val computedStake = if (settings.autoTraderCompoundingStake) {
-                (getActiveTradingBalance(settings) * 0.01).coerceAtLeast(1.0)
-            } else {
-                settings.autoTraderStake
-            }
-
-            val rawPrice = wsManager.getLastPriceFor(symbolCode) ?: 1.0
-            val priceStr = rawPrice.toString()
-            val entryDigitVal = priceStr.substring(priceStr.length - 1).toIntOrNull() ?: 0
-
-            val automatedPendingTrade = com.example.data.db.TradeHistory(
-                timestamp = System.currentTimeMillis(),
-                symbolCode = symbolCode,
-                displayName = displayName,
-                contractType = contractType,
-                barrierValue = barrier.toIntOrNull() ?: 5,
-                tradeType = "AUTOMATED",
-                accountType = if (settings.isDemoAccount) "DEMO" else "REAL",
-                stake = computedStake,
-                entryPrice = rawPrice,
-                entryDigit = entryDigitVal,
-                status = "PENDING"
-            )
-
-            viewModelScope.launch {
-                try {
-                    val dbId = kotlinx.coroutines.withContext(Dispatchers.IO) {
-                        db.tradeHistoryDao().insertTrade(automatedPendingTrade)
-                    }
-                    synchronized(activePendingTrades) {
-                        activePendingTrades.add(automatedPendingTrade.copy(id = dbId))
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-
-            wsManager.sendBuyRequest(
-                symbol = symbolCode,
-                contractType = contractType,
-                barrier = barrier,
-                stake = computedStake,
-                durationTicks = settings.virtualTradeCloseTicks
-            )
         }
 
         viewModelScope.launch(Dispatchers.IO) {

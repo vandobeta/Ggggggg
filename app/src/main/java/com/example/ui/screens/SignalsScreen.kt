@@ -1764,6 +1764,94 @@ fun SignalsScreen(
 
                                     var manualStake by remember { mutableStateOf("5.00") }
 
+                                    if (timing != null && timing.signal.id == signal.id && timing.isEntryReady) {
+                                         val infiniteTransition = rememberInfiniteTransition(label = "glow_m")
+                                         val glowAlpha by infiniteTransition.animateFloat(
+                                             initialValue = 0.35f,
+                                             targetValue = 0.95f,
+                                             animationSpec = infiniteRepeatable(
+                                                 animation = tween(800, easing = LinearEasing),
+                                                 repeatMode = RepeatMode.Reverse
+                                             ),
+                                             label = "glowAlpha_m"
+                                         )
+                                         val accentColor = if (signal.contractType == "UNDER") Color(0xFF10B981) else Color(0xFFFBBF24)
+                                         
+                                         Card(
+                                             colors = CardDefaults.cardColors(
+                                                 containerColor = accentColor.copy(alpha = 0.15f)
+                                             ),
+                                             shape = RoundedCornerShape(8.dp),
+                                             modifier = Modifier
+                                                 .fillMaxWidth()
+                                                 .border(2.dp, accentColor.copy(alpha = glowAlpha), RoundedCornerShape(8.dp))
+                                                 .padding(bottom = 4.dp)
+                                         ) {
+                                             Row(
+                                                 modifier = Modifier.padding(10.dp),
+                                                 horizontalArrangement = Arrangement.SpaceBetween,
+                                                 verticalAlignment = Alignment.CenterVertically
+                                             ) {
+                                                 Column(modifier = Modifier.weight(1f)) {
+                                                     Text(
+                                                         text = "⚡ ENTRY WINDOW OPTIMAL",
+                                                         color = Color.White,
+                                                         fontSize = 11.sp,
+                                                         fontWeight = FontWeight.Black,
+                                                         fontFamily = FontFamily.Monospace
+                                                     )
+                                                     Text(
+                                                         text = when(timing.recommendedAction) {
+                                                             "ENTER_UNDER" -> "📉 PLACE DIGITUNDER ${signal.barrier} contract"
+                                                             "ENTER_OVER" -> "📈 PLACE DIGITOVER ${signal.barrier} contract"
+                                                             else -> "✨ EXECUTE ${signal.contractType} contract now"
+                                                         },
+                                                         color = accentColor,
+                                                         fontSize = 9.sp,
+                                                         fontWeight = FontWeight.Bold,
+                                                         fontFamily = FontFamily.Monospace,
+                                                         modifier = Modifier.padding(top = 2.dp)
+                                                     )
+                                                 }
+                                                 Button(
+                                                     onClick = {
+                                                         haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                                         val stakeValue = manualStake.toDoubleOrNull() ?: 5.00
+                                                         val barrierNum = signal.barrier.toIntOrNull() ?: 5
+                                                         val runAction = {
+                                                             viewModel.executeManualTrade(
+                                                                 symbolCode = signal.symbol,
+                                                                 displayName = signal.displayName,
+                                                                 contractType = signal.contractType,
+                                                                 barrier = barrierNum,
+                                                                 stake = stakeValue
+                                                             )
+                                                         }
+                                                         if (userSettings.derivToken.isEmpty()) {
+                                                             tokenInputText = ""
+                                                             tokenPromptAction = runAction
+                                                             showTokenPromptDialog = true
+                                                         } else {
+                                                             runAction()
+                                                         }
+                                                     },
+                                                     colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+                                                     shape = RoundedCornerShape(6.dp),
+                                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                     modifier = Modifier.height(30.dp)
+                                                 ) {
+                                                     Text(
+                                                         text = "EXECUTE NOW",
+                                                         color = Color.Black,
+                                                         fontSize = 9.sp,
+                                                         fontWeight = FontWeight.Black,
+                                                         fontFamily = FontFamily.Monospace
+                                                     )
+                                                 }
+                                             }
+                                         }
+                                     }
+
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
