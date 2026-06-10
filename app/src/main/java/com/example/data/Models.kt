@@ -80,3 +80,19 @@ object MasterContractDatabase {
         8 to BrokerContractSpecs("OVER 8", 8, listOf(9), "~900%")
     )
 }
+
+data class MultContractSpecs(
+    val orderName: String,
+    val payoutLabel: String,
+    val multiplierValue: Double
+)
+
+object MultContractDatabase {
+    val multipliers = mapOf(
+        50 to MultContractSpecs("x50", "~85%", 50.0),
+        100 to MultContractSpecs("x100", "~170%", 100.0),
+        200 to MultContractSpecs("x200", "~340%", 200.0),
+        500 to MultContractSpecs("x500", "~850%", 500.0)
+    )
+}
+

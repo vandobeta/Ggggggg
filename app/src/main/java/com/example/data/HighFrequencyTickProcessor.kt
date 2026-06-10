@@ -270,4 +270,20 @@ class HighFrequencyTickProcessor {
             else -> "~100%"
         }
     }
+
+    fun getSlidingTickCache(): List<Int> {
+        return synchronized(slidingTickCache) { slidingTickCache.toList() }
+    }
+
+    fun getMacroFrequencies(): IntArray {
+        val freqs = IntArray(10) { 0 }
+        val snapshot = getSlidingTickCache()
+        for (digit in snapshot) {
+            if (digit in 0..9) {
+                freqs[digit]++
+            }
+        }
+        return freqs
+    }
 }
+

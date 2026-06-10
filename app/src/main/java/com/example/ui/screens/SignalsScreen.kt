@@ -53,6 +53,10 @@ fun SignalsScreen(
     val countdown by viewModel.signalCountdown.collectAsState()
     val userSettings by viewModel.userSettings.collectAsState()
     val signalHistoryList by viewModel.signalHistory.collectAsState()
+    
+    val accumulatorState by viewModel.accumulatorState.collectAsState()
+    val dynamicBarrierResult by viewModel.dynamicBarrierResult.collectAsState()
+    val trendReversalSignal by viewModel.trendReversalSignal.collectAsState()
     val marketChoppyBlocked by viewModel.marketChoppyBlocked.collectAsState()
     val entryTriggerAwaiting by viewModel.entryTriggerAwaiting.collectAsState()
     val dualVectorState by viewModel.dualVectorState.collectAsState()
@@ -412,6 +416,25 @@ fun SignalsScreen(
                                 )
                             }
                         }
+                    }
+                }
+
+                // --- Part 1.5: Real-time Advanced Diagnostics ---
+                if (accumulatorState != null) {
+                    item {
+                        AccumulatorFailsafeStatusView(state = accumulatorState!!)
+                    }
+                }
+                
+                if (dynamicBarrierResult != null) {
+                    item {
+                        DynamicBarrierAnalysisView(result = dynamicBarrierResult!!)
+                    }
+                }
+
+                if (trendReversalSignal != null) {
+                    item {
+                        TrendReversalRetestView(signal = trendReversalSignal!!)
                     }
                 }
 
@@ -3932,3 +3955,276 @@ fun EntryTimingProgressView(
         }
     }
 }
+
+@Composable
+fun AccumulatorFailsafeStatusView(
+    state: com.example.data.AccumulatorState,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.04f)),
+        modifier = modifier
+            .fillMaxWidth()
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "🚀 ACCUMULATOR ACTIVE POSITION",
+                    color = Color(0xFF34D399),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (state.isSpiraling) Color(0xFFEF4444).copy(alpha = 0.15f) else Color(0xFF10B981).copy(alpha = 0.15f))
+                        .border(1.dp, if (state.isSpiraling) Color(0xFFEF4444) else Color(0xFF10B981), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = if (state.isSpiraling) "⚠️ MOMENTUM SPIRAL" else "🛡️ SAFE",
+                        color = if (state.isSpiraling) Color(0xFFFCA5A5) else Color(0xFF34D399),
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+
+            Text(
+                text = "ID: ${state.contractId} | Symbol: ${state.symbol}",
+                color = Color.LightGray,
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("Stayed-In Duration", color = Color.Gray, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
+                    Text("${state.ticksStayedIn} Ticks", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("Real-Time Valuation", color = Color.Gray, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
+                    Text(
+                        text = if (state.lastProfit >= 0) "+$${String.format(java.util.Locale.US, "%.2f", state.lastProfit)}" else "-$${String.format(java.util.Locale.US, "%.2f", -state.lastProfit)}",
+                        color = if (state.lastProfit >= 0) Color(0xFF34D399) else Color(0xFFEF4444),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+
+            val progressValue = (state.ticksStayedIn / 200f).coerceIn(0f, 1f)
+            LinearProgressIndicator(
+                progress = progressValue,
+                color = if (state.isSpiraling) Color(0xFFEF4444) else Color(0xFF10B981),
+                trackColor = Color.White.copy(alpha = 0.08f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp))
+            )
+
+            Text(
+                text = if (state.isSpiraling) "ALERT: Momentum spiral detected. Failsafe auto-sell engine armed." 
+                       else "Failsafe condition: Automated profit take triggered at 200 ticks or on barrier contraction.",
+                color = Color.Gray,
+                fontSize = 8.sp,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+    }
+}
+
+@Composable
+fun DynamicBarrierAnalysisView(
+    result: com.example.data.DynamicBarrierResult,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.04f)),
+        modifier = modifier
+            .fillMaxWidth()
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "📊 DYNAMIC BARRIER OPTIMIZER",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color(0xFF818CF8).copy(alpha = 0.15f))
+                        .border(1.dp, Color(0xFF818CF8), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = result.recommendedContract,
+                        color = Color(0xFFC7D2FE),
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("Optimal Barrier", color = Color.Gray, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
+                    Text("${result.recommendedContract} ${result.optimalBarrier}", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("Model Win Probability", color = Color.Gray, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
+                    Text("${String.format(java.util.Locale.US, "%.0f%%", result.winProbability)}", color = Color(0xFF34D399), fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("Confidence Index", color = Color.Gray, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
+                    Text("${String.format(java.util.Locale.US, "%.1f%%", result.confidence)}", color = Color.White, fontSize = 9.5.sp, fontFamily = FontFamily.Monospace)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("Risk-Adjusted Payout", color = Color.Gray, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
+                    Text("${String.format(java.util.Locale.US, "%.1f%%", result.riskAdjustedPayout)}", color = Color.White, fontSize = 9.5.sp, fontFamily = FontFamily.Monospace)
+                }
+            }
+
+            Text(
+                text = "Barrier is calculated dynamically using real-time digit drift, quadrant starvation coefficients, and directional momentum alignment.",
+                color = Color.Gray,
+                fontSize = 8.sp,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+    }
+}
+
+@Composable
+fun TrendReversalRetestView(
+    signal: com.example.data.TrendReversalSignal,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.04f)),
+        modifier = modifier
+            .fillMaxWidth()
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "🔄 TREND REVERSAL DETECTOR",
+                    color = Color(0xFFFBBF24),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(
+                            if (signal.isEntryReady) Color(0xFF10B981).copy(alpha = 0.15f)
+                            else Color(0xFFF59E0B).copy(alpha = 0.15f)
+                        )
+                        .border(
+                            1.dp,
+                            if (signal.isEntryReady) Color(0xFF10B981) else Color(0xFFF59E0B),
+                            RoundedCornerShape(4.dp)
+                        )
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = if (signal.isEntryReady) "ENTRY READY" else "MONITORING Ticks",
+                        color = if (signal.isEntryReady) Color(0xFF34D399) else Color(0xFFFBBF24),
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("Reversal Type", color = Color.Gray, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
+                    Text(signal.reversalType, color = if (signal.reversalType == "BULLISH") Color(0xFF34D399) else if (signal.reversalType == "BEARISH") Color(0xFFEF4444) else Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("Retests Completed", color = Color.Gray, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
+                    Text("${signal.retestCount} / 3 Ticks", color = if (signal.retestCount >= 3) Color(0xFF34D399) else Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("Estimated Support", color = Color.Gray, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
+                    Text(String.format(java.util.Locale.US, "%.1f", signal.supportLevel), color = Color.LightGray, fontSize = 9.5.sp, fontFamily = FontFamily.Monospace)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("Estimated Resistance", color = Color.Gray, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
+                    Text(String.format(java.util.Locale.US, "%.1f", signal.resistanceLevel), color = Color.LightGray, fontSize = 9.5.sp, fontFamily = FontFamily.Monospace)
+                }
+            }
+
+            Text(
+                text = "Strategy: Employs a 3-retest entry model before entering UPS-ONLY (MULTUP) or DOWNS-ONLY (MULTDOWN) contracts to capture genuine structural direction.",
+                color = Color.Gray,
+                fontSize = 8.sp,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+    }
+}
+

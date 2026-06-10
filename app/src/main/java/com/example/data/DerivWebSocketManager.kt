@@ -112,7 +112,8 @@ class DerivWebSocketManager {
         val profit: Double = 0.0,
         val bidPrice: Double = 0.0,
         val exitDigit: Int? = null,
-        val timestamp: Long = System.currentTimeMillis()
+        val timestamp: Long = System.currentTimeMillis(),
+        val tickCount: Int = 0
     )
 
     data class TradeFeedback(
@@ -765,6 +766,7 @@ class DerivWebSocketManager {
                     val profit = pocObj.optDouble("profit", 0.0)
                     val exitTick = pocObj.optInt("exit_tick", -1)
                     val exitDigit = if (exitTick != -1) (exitTick % 10) else null
+                    val tickCount = pocObj.optInt("tick_count", 0)
 
                     updateActiveContract(
                         contractId = contractId,
@@ -775,7 +777,8 @@ class DerivWebSocketManager {
                         isSold = isSold,
                         underlying = underlying,
                         contractType = contractType,
-                        buyPrice = buyPrice
+                        buyPrice = buyPrice,
+                        tickCount = tickCount
                     )
                 }
             } else if (msgType == "tick") {
@@ -816,7 +819,8 @@ class DerivWebSocketManager {
         isSold: Boolean,
         underlying: String,
         contractType: String,
-        buyPrice: Double
+        buyPrice: Double,
+        tickCount: Int = 0
     ) {
         synchronized(this) {
             if (isSold) {
@@ -832,7 +836,8 @@ class DerivWebSocketManager {
                     status = status.uppercase(),
                     profit = profit,
                     bidPrice = bidPrice,
-                    exitDigit = exitDigit
+                    exitDigit = exitDigit,
+                    tickCount = tickCount
                 )
                 val histList = _realTradeHistory.value.toMutableList()
                 histList.removeAll { it.contractId == contractId }
@@ -859,7 +864,7 @@ class DerivWebSocketManager {
                 val index = activeList.indexOfFirst { it.contractId == contractId }
                 if (index != -1) {
                     val existing = activeList[index]
-                    activeList[index] = existing.copy(bidPrice = bidPrice, profit = profit)
+                    activeList[index] = existing.copy(bidPrice = bidPrice, profit = profit, tickCount = tickCount)
                     _activeContracts.value = activeList
                 } else {
                     activeList.add(WsContract(
@@ -869,7 +874,8 @@ class DerivWebSocketManager {
                         symbol = underlying,
                         status = "OPEN",
                         profit = profit,
-                        bidPrice = bidPrice
+                        bidPrice = bidPrice,
+                        tickCount = tickCount
                     ))
                     _activeContracts.value = activeList
                 }
@@ -1070,6 +1076,8 @@ class DerivWebSocketManager {
             "RISE", "CALL" -> "CALL"
             "FALL", "PUT" -> "PUT"
             "ACCUMULATORS", "ACCUMULATOR", "ACCU" -> "ACCU"
+            "MULTUP", "UPS", "UPS_ONLY" -> "MULTUP"
+            "MULTDOWN", "DOWNS", "DOWNS_ONLY" -> "MULTDOWN"
             "ASIANS_UP", "ASIAN_UP", "ASIANU" -> "ASIANU"
             "ASIANS_DOWN", "ASIAN_DOWN", "ASIAND" -> "ASIAND"
             else -> contractType.uppercase().trim()
@@ -1101,7 +1109,7 @@ class DerivWebSocketManager {
                     put("currency", activeCurrency)
                     put("req_id", reqId)
                     
-                    if (mappedContractType != "ACCU") {
+                    if (mappedContractType != "ACCU" && mappedContractType != "MULTUP" && mappedContractType != "MULTDOWN") {
                         put("duration", durationTicks)
                         put("duration_unit", "t")
                     }
@@ -1125,6 +1133,9 @@ class DerivWebSocketManager {
                             else -> 0.01
                         }
                         put("growth_rate", rate)
+                    } else if (mappedContractType == "MULTUP" || mappedContractType == "MULTDOWN") {
+                        val multVal = barrier.filter { it.isDigit() }.toIntOrNull() ?: 100
+                        put("multiplier", multVal)
                     }
                 }
                 ws.send(json.toString())
@@ -1136,6 +1147,24 @@ class DerivWebSocketManager {
             addLog("Trade request rejected: WebSocket connection is disconnected.", "ERROR")
         }
     }
+
+    fun sellContractFailsafe(contractId: Long) {
+        val ws = webSocket
+        if (ws != null && _connectionState.value == "AUTHORIZED") {
+            try {
+                val json = JSONObject().apply {
+                    put("sell", contractId)
+                    put("price", 0)
+                }
+                ws.send(json.toString())
+                addLog("OUTBOUND: Failsafe triggered. Transmitting sell call for open Contract ID $contractId...", "OUTBOUND")
+            } catch (e: java.lang.Exception) {
+                Log.e(TAG, "Error sending sell request: ${e.message}")
+                addLog("Error transmitting sell request: ${e.message}", "ERROR")
+            }
+        }
+    }
+
 
     fun resetDemoBalance(token: String, accountId: String, onCompleted: (Boolean, String?) -> Unit) {
         val ws = webSocket

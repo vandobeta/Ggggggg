@@ -11,6 +11,14 @@ import com.example.data.MarketScanResult
 import com.example.data.ReminderNotificationHelper
 import com.example.data.EntryTimingEngine
 import com.example.data.EntryTimingResult
+import com.example.data.AccumulatorState
+import com.example.data.AccumulatorTradingEngine
+import com.example.data.MomentumAnalysis
+import com.example.data.AutoSellDecision
+import com.example.data.DynamicBarrierResult
+import com.example.data.DynamicBarrierEngine
+import com.example.data.TrendReversalSignal
+import com.example.data.TrendReversalEngine
 import com.example.data.db.AppDatabase
 import com.example.data.db.AppSettings
 import com.example.data.db.SettingsRepository
@@ -92,9 +100,25 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
     private val entryTimingEngine = EntryTimingEngine()
     private val postSignalTicks = mutableListOf<Int>()
 
+    // --- INTEGRATED ENGINES & STATES ---
+    private val accumulatorTradingEngine = AccumulatorTradingEngine()
+    private val _accumulatorState = MutableStateFlow<AccumulatorState?>(null)
+    val accumulatorState: StateFlow<AccumulatorState?> = _accumulatorState.asStateFlow()
+
+    private val dynamicBarrierEngine = DynamicBarrierEngine()
+    private val _dynamicBarrierResult = MutableStateFlow<DynamicBarrierResult?>(null)
+    val dynamicBarrierResult: StateFlow<DynamicBarrierResult?> = _dynamicBarrierResult.asStateFlow()
+
+    private val trendReversalEngine = TrendReversalEngine()
+    private val _trendReversalSignal = MutableStateFlow<TrendReversalSignal?>(null)
+    val trendReversalSignal: StateFlow<TrendReversalSignal?> = _trendReversalSignal.asStateFlow()
+
     fun clearActiveSignal() {
         _activeSignal.value = null
         _entryTimingState.value = null
+        _accumulatorState.value = null
+        _dynamicBarrierResult.value = null
+        _trendReversalSignal.value = null
         postSignalTicks.clear()
     }
 
@@ -631,6 +655,59 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
 
                     if (symbol == _selectedSymbol.value) {
                         _unifiedTickState.value = unifiedState
+
+                        // 1. Dynamic Barrier calculation
+                        val currentHistory = processor.getSlidingTickCache()
+                        val currentFreqs = processor.getMacroFrequencies()
+                        val globalStability = unifiedState.stabilityScore
+                        val calculatedDirection = when {
+                            globalStability > 50f && unifiedState.globalRegime == "REVERSION_TO_EVEN" -> "DOWN"
+                            globalStability > 50f && unifiedState.globalRegime == "REVERSION_TO_ODD" -> "UP"
+                            else -> "SIDEWAYS"
+                        }
+                        _dynamicBarrierResult.value = dynamicBarrierEngine.calculateDynamicBarrier(
+                            history = currentHistory,
+                            currentDigit = digit,
+                            macroFrequencies = currentFreqs,
+                            momentumDirection = calculatedDirection
+                        )
+
+                        // 2. Trend Reversal tracking with Support/Resistance
+                        _trendReversalSignal.value = trendReversalEngine.detectTrendReversal(currentHistory)
+
+                        // 3. Accumulator open position failsafe evaluator
+                        val openContracts = wsManager.activeContracts.value
+                        val openAccu = openContracts.firstOrNull { it.symbol == symbol && (it.contractType == "ACCU" || it.contractType == "ACCUMULATOR") && it.status == "OPEN" }
+                        if (openAccu != null) {
+                            val analysis = accumulatorTradingEngine.analyzeMomentumForAccumulator(currentHistory)
+                            val accuState = AccumulatorState(
+                                contractId = openAccu.contractId,
+                                symbol = openAccu.symbol,
+                                growthRate = 0.01f, // default
+                                currentBarrier = 1.0, 
+                                ticksStayedIn = openAccu.tickCount,
+                                lastProfit = openAccu.profit,
+                                isSpiraling = analysis.spiralRiskScore >= 0.70f,
+                                spiralWarningTriggered = analysis.spiralRiskScore >= 0.70f || openAccu.tickCount >= 10
+                            )
+                            _accumulatorState.value = accuState
+
+                            val decision = accumulatorTradingEngine.shouldAutoSell(accuState)
+                            if (decision.shouldSell) {
+                                wsManager.sellContractFailsafe(openAccu.contractId)
+                                wsManager.publishTradeFeedback(
+                                    com.example.data.DerivWebSocketManager.TradeFeedback(
+                                        isError = false,
+                                        isWin = true,
+                                        title = "ACCU AUTO-SELL TRIGGERED 🛡️",
+                                        message = "Failsafe Close: ${decision.reason}.\nAccumulated profit secured at $${String.format(java.util.Locale.US, "%.2f", decision.exitPrice)}.",
+                                        rawDetails = "Reason: ${decision.reason} | Ticks: ${openAccu.tickCount}"
+                                    )
+                                )
+                            }
+                        } else {
+                            _accumulatorState.value = null
+                        }
 
                         // Haptic Engine Interlocking: Based on selected screen track toggle for "Risky" or "Safer"
                         val profile = settings.riskProfile
@@ -2239,7 +2316,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
             5 -> "~150%"
             6 -> "~233%"
             7 -> "~400%"
-            8 -> "~970%"
+            8 -> "~900%"
             else -> "~100%"
         }
     }
