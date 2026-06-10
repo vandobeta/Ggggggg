@@ -166,8 +166,8 @@ class HighFrequencyTickProcessor {
         val parsedCandidates = final3Candidates.take(3)
 
         // 5. Parallel Track Execution Compiler Engine using mathematically locked out-of-span strategy compiler
-        val riskyEvaluatedTrack = compileDefinitiveContract(parsedCandidates, extractedDigit, macroFrequencies, oddPercentage, evenPercentage)
-        val saferEvaluatedTrack = compileDefinitiveContract(parsedCandidates, extractedDigit, macroFrequencies, oddPercentage, evenPercentage)
+        val riskyEvaluatedTrack = compileDefinitiveContract(parsedCandidates, extractedDigit, macroFrequencies, oddPercentage, evenPercentage, isSafer = false)
+        val saferEvaluatedTrack = compileDefinitiveContract(parsedCandidates, extractedDigit, macroFrequencies, oddPercentage, evenPercentage, isSafer = true)
 
         return UnifiedTickState(
             lastExtractedDigit = extractedDigit,
@@ -189,7 +189,8 @@ class HighFrequencyTickProcessor {
         extractedDigit: Int,
         macroFrequencies: IntArray,
         oddPercentage: Float,
-        evenPercentage: Float
+        evenPercentage: Float,
+        isSafer: Boolean
     ): ProfileExecutionTrack {
         if (normalizedCandidates.size < 3) {
             return ProfileExecutionTrack("NONE", "N/A", "0%", "INCOMPLETE", false)
@@ -201,7 +202,8 @@ class HighFrequencyTickProcessor {
             frequencies = macroFrequencies,
             oddPercentage = oddPercentage,
             evenPercentage = evenPercentage,
-            completeCandidates = normalizedCandidates
+            completeCandidates = normalizedCandidates,
+            isSafer = isSafer
         )
 
         // Convert StratResult contract type

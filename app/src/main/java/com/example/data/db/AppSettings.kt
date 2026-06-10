@@ -56,5 +56,7 @@ data class AppSettings(
     val patToken: String = "",
     val autoTraderStatus: Int = 0, // 1 for on, 0 for off
     val maxSignalsPerDay: Int = 50,
-    val tradeSessionsPerDay: Int = 3
+    val tradeSessionsPerDay: Int = 3,
+    val aiProvider: String = "gemini",
+    val aiToken: String = ""
 )

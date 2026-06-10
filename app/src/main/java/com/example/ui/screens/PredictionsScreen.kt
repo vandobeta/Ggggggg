@@ -1026,7 +1026,7 @@ fun PredictionsScreen(
                                                         verticalAlignment = Alignment.CenterVertically
                                                     ) {
                                                         Text(
-                                                            text = "Candidates: { ${item.winDigits} }",
+                                                            text = "Candidates: ${item.winDigits}",
                                                             color = Color.Gray,
                                                             fontSize = 9.sp,
                                                             fontFamily = FontFamily.Monospace

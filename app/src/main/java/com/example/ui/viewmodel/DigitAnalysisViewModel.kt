@@ -1,6 +1,7 @@
 package com.example.ui.viewmodel
 
 import android.app.Application
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.CompleteDataPacket
@@ -8,6 +9,8 @@ import com.example.data.DerivWebSocketManager
 import com.example.data.LivePredictionModel
 import com.example.data.MarketScanResult
 import com.example.data.ReminderNotificationHelper
+import com.example.data.EntryTimingEngine
+import com.example.data.EntryTimingResult
 import com.example.data.db.AppDatabase
 import com.example.data.db.AppSettings
 import com.example.data.db.SettingsRepository
@@ -44,6 +47,10 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
     private val _userSettings = MutableStateFlow(AppSettings())
     val userSettings: StateFlow<AppSettings> = _userSettings.asStateFlow()
 
+    // AI Advisor state flow
+    private val _aiAdvisoryState = MutableStateFlow<AiAdvisoryResult?>(null)
+    val aiAdvisoryState: StateFlow<AiAdvisoryResult?> = _aiAdvisoryState.asStateFlow()
+
     // Counts how many high confidence triggers we had
     private val _triggeredSignalsToday = MutableStateFlow(0)
     val triggeredSignalsToday: StateFlow<Int> = _triggeredSignalsToday.asStateFlow()
@@ -78,6 +85,18 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
 
     private val _activeSignal = MutableStateFlow<LiveTradeSignal?>(null)
     val activeSignal: StateFlow<LiveTradeSignal?> = _activeSignal.asStateFlow()
+
+    private val _entryTimingState = MutableStateFlow<EntryTimingResult?>(null)
+    val entryTimingState: StateFlow<EntryTimingResult?> = _entryTimingState.asStateFlow()
+
+    private val entryTimingEngine = EntryTimingEngine()
+    private val postSignalTicks = mutableListOf<Int>()
+
+    fun clearActiveSignal() {
+        _activeSignal.value = null
+        _entryTimingState.value = null
+        postSignalTicks.clear()
+    }
 
     // --- AUTO TRADER ENGINE STATES ---
     private val _autoSessionProfit = MutableStateFlow(0.0)
@@ -410,7 +429,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                 if (active != null) {
                     val age = System.currentTimeMillis() - active.timestamp
                     if (age > 15000L) { // 15 seconds expiry metric
-                        _activeSignal.value = null
+                        clearActiveSignal()
                         android.util.Log.d("DigitAnalysisViewModel", "Failsafe: Auto co-pilot signal self-destruction triggered. Active signal aged ${age}ms discarded.")
                     }
                 }
@@ -592,6 +611,14 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                     processBacktestOnNewTick(symbol, digit)
                     processLiveSignalsOnNewTick(symbol, digit)
                     processTradeHistoryOnNewTick(symbol, digit)
+
+                    // Entry Timing Post-Signal Ticks Processing
+                    val activeSignalVal = _activeSignal.value
+                    if (activeSignalVal != null && activeSignalVal.symbol == symbol) {
+                        postSignalTicks.add(digit)
+                        val timing = entryTimingEngine.evaluateEntryTiming(activeSignalVal, postSignalTicks.toList())
+                        _entryTimingState.value = timing
+                    }
 
                     // Real-time State Distribution: Pass calculated UnifiedTickState to single UI StateFlow container
                     val rawPrice = wsManager.getLastPriceFor(symbol)
@@ -1649,7 +1676,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
         _marketChoppyBlocked.value = isChoppy
         
         if (isChoppy) {
-            _activeSignal.value = null
+            clearActiveSignal()
             _entryTriggerAwaiting.value = false
             android.util.Log.d("DigitAnalysisViewModel", "Safety Filter: Market is choppy ($stability%). Skipping signal.")
             return
@@ -1664,7 +1691,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
         val parityDiff = kotlin.math.abs(evenPct - oddPct)
         
         if (parityDiff <= 20f) {
-            _activeSignal.value = null
+            clearActiveSignal()
             _entryTriggerAwaiting.value = false
             android.util.Log.d("DigitAnalysisViewModel", "Parity Gap Filter: Odd to Even difference is too narrow (${String.format("%.1f%%", parityDiff)} <= 20%). Skipping signal.")
             return
@@ -1675,7 +1702,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
         
         _entryTriggerAwaiting.value = !hasEntryTrigger
         if (!hasEntryTrigger) {
-            _activeSignal.value = null // Discard active signal immediately on entry failure
+            clearActiveSignal() // Discard active signal immediately on entry failure
             android.util.Log.d("DigitAnalysisViewModel", "Entry Trigger Filter: Dual vector condition not met. Awaiting convergence...")
             return
         }
@@ -1751,29 +1778,29 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
 
             estPayout = when (contractType) {
                 "MATCHES" -> "~900%"
-                "DIFFERS" -> "~9.8%"
+                "DIFFERS" -> "~11%"
                 "OVER" -> when (barrier.toIntOrNull() ?: 3) {
-                    0 -> "~10%"
-                    1 -> "~15%"
-                    2 -> "~25%"
-                    3 -> "~40%"
-                    4 -> "~65%"
+                    0 -> "~11%"
+                    1 -> "~25%"
+                    2 -> "~42%"
+                    3 -> "~66%"
+                    4 -> "~100%"
                     5 -> "~150%"
-                    6 -> "~230%"
-                    7 -> "~450%"
+                    6 -> "~233%"
+                    7 -> "~400%"
                     8 -> "~900%"
                     else -> "~100%"
                 }
                 "UNDER" -> when (barrier.toIntOrNull() ?: 5) {
                     1 -> "~970%"
-                    2 -> "~460%"
-                    3 -> "~240%"
+                    2 -> "~400%"
+                    3 -> "~233%"
                     4 -> "~150%"
                     5 -> "~100%"
-                    6 -> "~40%"
-                    7 -> "~25%"
-                    8 -> "~15%"
-                    9 -> "~10%"
+                    6 -> "~66%"
+                    7 -> "~42%"
+                    8 -> "~25%"
+                    9 -> "~11%"
                     else -> "~100%"
                 }
                 else -> "~100%"
@@ -1803,7 +1830,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                             contractType = "DIFFERS"
                             val diffBarrier = getDigitDiffBarrier(candidates, anchor)
                             barrier = diffBarrier.toString()
-                            estPayout = "~9.8%"
+                            estPayout = "~11%"
                             message = "🔄 Interceptor Catch UNDER 0: Ignored invalid boundary. Redirected to DIGITDIFF secure anchor separation at $barrier."
                             probability = 91f
                         } else {
@@ -1811,14 +1838,14 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                             barrier = proposedBarrier.coerceIn(0, 9).toString()
                             estPayout = when (proposedBarrier) {
                                 1 -> "~970%"
-                                2 -> "~460%"
-                                3 -> "~240%"
+                                2 -> "~400%"
+                                3 -> "~233%"
                                 4 -> "~150%"
                                 5 -> "~100%"
-                                6 -> "~40%"
-                                7 -> "~25%"
-                                8 -> "~15%"
-                                9 -> "~10%"
+                                6 -> "~66%"
+                                7 -> "~42%"
+                                8 -> "~25%"
+                                9 -> "~11%"
                                 else -> "~100%"
                             }
                             message = "📉 Digit Under Qualified: Primary anchor $anchor in Lows division with safe cushion padding above maximum candidate $maxDigit."
@@ -1829,7 +1856,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                         contractType = "DIFFERS"
                         val diffBarrier = getDigitDiffBarrier(candidates, anchor)
                         barrier = diffBarrier.toString()
-                        estPayout = "~9.8%"
+                        estPayout = "~11%"
                         message = "🎯 High-Span Sniper Pivot: Span $span exceeds SAFE threshold. Shifted to secure DIGITDIFF contract at $barrier."
                         probability = 91f
                     }
@@ -1844,21 +1871,21 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                             contractType = "DIFFERS"
                             val diffBarrier = getDigitDiffBarrier(candidates, anchor)
                             barrier = diffBarrier.toString()
-                            estPayout = "~9.8%"
+                            estPayout = "~11%"
                             message = "🔄 Interceptor Catch OVER 9: Ignored invalid boundary. Redirected to DIGITDIFF secure anchor separation at $barrier."
                             probability = 91f
                         } else {
                             contractType = "OVER"
                             barrier = proposedBarrier.coerceIn(0, 9).toString()
                             estPayout = when (proposedBarrier) {
-                                0 -> "~10%"
-                                1 -> "~15%"
-                                2 -> "~25%"
-                                3 -> "~40%"
-                                4 -> "~65%"
+                                0 -> "~11%"
+                                1 -> "~25%"
+                                2 -> "~42%"
+                                3 -> "~66%"
+                                4 -> "~100%"
                                 5 -> "~150%"
-                                6 -> "~230%"
-                                7 -> "~450%"
+                                6 -> "~233%"
+                                7 -> "~400%"
                                 8 -> "~900%"
                                 else -> "~100%"
                             }
@@ -1870,7 +1897,7 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
                         contractType = "DIFFERS"
                         val diffBarrier = getDigitDiffBarrier(candidates, anchor)
                         barrier = diffBarrier.toString()
-                        estPayout = "~9.8%"
+                        estPayout = "~11%"
                         message = "🎯 High-Span Sniper Pivot: Span $span exceeds SAFE threshold. Shifted to secure DIGITDIFF contract at $barrier."
                         probability = 91f
                     }
@@ -1932,6 +1959,8 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
             crossoverActive = (crossoverTicksRemaining[symbolCode] ?: 0) > 0
         )
         _activeSignal.value = freshSignal
+        postSignalTicks.clear()
+        _entryTimingState.value = entryTimingEngine.evaluateEntryTiming(freshSignal, emptyList())
 
         val behavior = settings.alertBehavior
         val showNotif = (behavior == "NOTIF_ONLY" || behavior == "VIB_AND_NOTIF")
@@ -2347,6 +2376,215 @@ class DigitAnalysisViewModel(application: Application) : AndroidViewModel(applic
         return if (bestDigit != -1) bestDigit else 9
     }
 
+    fun queryAiAdvisor() {
+        val settings = _userSettings.value
+        val provider = settings.aiProvider.lowercase().trim()
+        val token = settings.aiToken.trim()
+
+        if (token.isEmpty()) {
+            _aiAdvisoryState.value = AiAdvisoryResult(
+                isLoading = false,
+                text = "",
+                error = "API Key is missing. Please configure your AI Provider key in settings first."
+            )
+            return
+        }
+
+        _aiAdvisoryState.value = AiAdvisoryResult(isLoading = true)
+
+        viewModelScope.launch {
+            try {
+                val connectionStateVal = connectionState.value
+                val pingVal = pingState.value
+                val balanceVal = wsManager.authorizedBalance.value ?: settings.derivWalletBalance
+                val triggeredVal = _triggeredSignalsToday.value
+                val rankingsVal = marketRankings.value
+                val activeSigVal = _activeSignal.value
+                val tradesVal = _tradeHistory.value.take(15)
+                val realTradesVal = wsManager.realTradeHistory.value.take(15)
+                val logsVal = wsManager.liveLogs.value.take(15)
+
+                val systemPrompt = """
+                    You are an expert Deriv High-Frequency Quantitative Trading Advisor inside the Algo-Radar Terminal. You specialize in synthetic indices digit analytics, risk mitigation, and algorithmic settings optimization.
+                    Analyze the provided system data (current settings, recent trade logs, market state, active signals, and network logs) and give structured, professional advice.
+                    State your key takeaways, highlight any warning signs (e.g. high loss rates, connection latency, invalid configuration), and suggest clear actionable parameter modifications.
+                    Keep your analysis extremely tactical, professional, concise, with no conversational fluff. Present your findings in a structured Markdown format.
+                """.trimIndent()
+
+                val dataPrompt = """
+                    [TRADER SETTINGS]
+                    - Trader Name: ${settings.traderName}
+                    - Current Capital: $${settings.capital}
+                    - Target/Goal: ${settings.goal}
+                    - Risk Profile: ${settings.riskProfile}
+                    - Default Stake: $${settings.stake}
+                    - Auto-Trader Enabled: ${settings.autoTraderEnabled}
+                    - Auto-Trader Stake: $${settings.autoTraderStake}
+                    - Auto-Trader Take Profit: $${settings.autoTraderTakeProfit}
+                    - Auto-Trader Stop Loss: $${settings.autoTraderStopLoss}
+                    - Account Type: ${settings.currentAccountType.uppercase()} (Demo: ${settings.isDemoAccount})
+
+                    [REAL-TIME SYSTEM STATE]
+                    - Connection State: $connectionStateVal
+                    - Latency (RTT): ${pingVal}ms
+                    - Account Balance: $$balanceVal
+                    - Triggered Signals Today: $triggeredVal
+                    - Market Scan Ratings: ${rankingsVal.joinToString { "${it.displayName} (${it.symbol}): ${it.recommendedContract} (Edge Score: ${String.format("%.1f", it.totalEdgeScore)}%, Confidence: ${String.format("%.1f", it.confidence * 100)}%)" }}
+                    - Active Signal: ${activeSigVal?.let { "${it.displayName} [${it.contractType}] (Prob: ${it.probabilityEst * 100}%) - ${it.message}" } ?: "NONE"}
+
+                    [RECENT SETTLED TRADES (LOCAL DB & REAL-TIME)]
+                    ${if (tradesVal.isEmpty() && realTradesVal.isEmpty()) "No trades recorded yet." else ""}
+                    ${tradesVal.mapIndexed { idx, t -> "Local Trade #${idx+1}: ${t.symbolCode} [${t.contractType}] Stake: $${t.stake} | Profit/Loss: $${t.profitLoss} | Settled: ${t.status} (Entry Price: ${t.entryPrice}, Exit Price: ${t.exitPrice})" }.joinToString("\n")}
+                    ${realTradesVal.mapIndexed { idx, t -> "Real Trade #${idx+1}: ${t.symbol} [${t.contractType}] Stake: $${t.buyPrice} | Profit: $${t.profit} | Status: ${t.status}" }.joinToString("\n")}
+
+                    [RECENT NETWORK LOGS]
+                    ${if (logsVal.isEmpty()) "No logs available." else ""}
+                    ${logsVal.joinToString("\n") { "[${it.type}] ${it.message}" }}
+
+                    Provide a diagnostic assessment, advise me on potential trades, and recommend tuning keys adjustment. Ensure the tone is objective and highly technical.
+                """.trimIndent()
+
+                val result = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    try {
+                        val client = okhttp3.OkHttpClient.Builder()
+                            .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                            .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                            .build()
+
+                        val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
+                        
+                        val request: okhttp3.Request
+                        if (provider == "gemini") {
+                            // Gemini REST API
+                            val combinedPrompt = "$systemPrompt\n\nUSER CURRENT DATA & CONTEXT:\n$dataPrompt"
+                            val requestBodyJson = org.json.JSONObject()
+                            val contentsArray = org.json.JSONArray()
+                            val contentObj = org.json.JSONObject()
+                            val partsArray = org.json.JSONArray()
+                            val partObj = org.json.JSONObject()
+
+                            partObj.put("text", combinedPrompt)
+                            partsArray.put(partObj)
+                            contentObj.put("parts", partsArray)
+                            contentsArray.put(contentObj)
+                            requestBodyJson.put("contents", contentsArray)
+
+                            val reqBody = okhttp3.RequestBody.create(mediaType, requestBodyJson.toString())
+                            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$token"
+                            
+                            request = okhttp3.Request.Builder()
+                                .url(url)
+                                .post(reqBody)
+                                .build()
+                        } else {
+                            // ChatGPT API
+                            val requestBodyJson = org.json.JSONObject()
+                            requestBodyJson.put("model", "gpt-4o-mini")
+                            val messagesArray = org.json.JSONArray()
+
+                            val systemMsg = org.json.JSONObject()
+                            systemMsg.put("role", "system")
+                            systemMsg.put("content", systemPrompt)
+                            messagesArray.put(systemMsg)
+
+                            val userMsg = org.json.JSONObject()
+                            userMsg.put("role", "user")
+                            userMsg.put("content", dataPrompt)
+                            messagesArray.put(userMsg)
+
+                            requestBodyJson.put("messages", messagesArray)
+
+                            val reqBody = okhttp3.RequestBody.create(mediaType, requestBodyJson.toString())
+                            
+                            request = okhttp3.Request.Builder()
+                                .url("https://api.openai.com/v1/chat/completions")
+                                .addHeader("Authorization", "Bearer $token")
+                                .post(reqBody)
+                                .build()
+                        }
+
+                        client.newCall(request).execute().use { response ->
+                            val respStr = response.body?.string() ?: ""
+                            if (!response.isSuccessful) {
+                                var preciseErr = "HTTP Error: ${response.code}"
+                                try {
+                                    val errJson = org.json.JSONObject(respStr)
+                                    val errorObj = errJson.optJSONObject("error")
+                                    if (errorObj != null) {
+                                        preciseErr = errorObj.optString("message", preciseErr)
+                                    } else {
+                                        preciseErr = errJson.optString("message", preciseErr)
+                                    }
+                                } catch (e: Exception) {
+                                    // fallback
+                                }
+                                return@withContext AiAdvisoryResult(
+                                    isLoading = false,
+                                    error = "API Service returned error: $preciseErr"
+                                )
+                            }
+
+                            if (provider == "gemini") {
+                                val rootObj = org.json.JSONObject(respStr)
+                                val candidates = rootObj.optJSONArray("candidates")
+                                if (candidates != null && candidates.length() > 0) {
+                                    val firstCandidate = candidates.getJSONObject(0)
+                                    val content = firstCandidate.optJSONObject("content")
+                                    if (content != null) {
+                                        val parts = content.optJSONArray("parts")
+                                        if (parts != null && parts.length() > 0) {
+                                            val text = parts.getJSONObject(0).optString("text")
+                                            if (text.isNotEmpty()) {
+                                                return@withContext AiAdvisoryResult(
+                                                    isLoading = false,
+                                                    text = text
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                val rootObj = org.json.JSONObject(respStr)
+                                val choices = rootObj.optJSONArray("choices")
+                                if (choices != null && choices.length() > 0) {
+                                    val firstChoice = choices.getJSONObject(0)
+                                    val messageObj = firstChoice.optJSONObject("message")
+                                    if (messageObj != null) {
+                                        val text = messageObj.optString("content")
+                                        if (text.isNotEmpty()) {
+                                            return@withContext AiAdvisoryResult(
+                                                isLoading = false,
+                                                text = text
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            return@withContext AiAdvisoryResult(
+                                isLoading = false,
+                                error = "Unable to parse AI advice from the API response payload."
+                            )
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        return@withContext AiAdvisoryResult(
+                            isLoading = false,
+                            error = "Network exception: ${e.message}"
+                        )
+                    }
+                }
+                _aiAdvisoryState.value = result
+            } catch (e: Exception) {
+                e.printStackTrace()
+                _aiAdvisoryState.value = AiAdvisoryResult(
+                    isLoading = false,
+                    error = "Failed to compile advice: ${e.message}"
+                )
+            }
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         updateJob?.cancel()
@@ -2395,4 +2633,10 @@ data class DualVectorState(
     val dominantSide: String,
     val entryTriggerPassed: Boolean,
     val triggerDirection: String
+)
+
+data class AiAdvisoryResult(
+    val isLoading: Boolean = false,
+    val text: String = "",
+    val error: String? = null
 )

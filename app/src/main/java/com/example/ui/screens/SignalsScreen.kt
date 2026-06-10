@@ -49,6 +49,7 @@ fun SignalsScreen(
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val context = LocalContext.current
     val activeSignal by viewModel.activeSignal.collectAsState()
+    val entryTimingState by viewModel.entryTimingState.collectAsState()
     val countdown by viewModel.signalCountdown.collectAsState()
     val userSettings by viewModel.userSettings.collectAsState()
     val signalHistoryList by viewModel.signalHistory.collectAsState()
@@ -394,6 +395,12 @@ fun SignalsScreen(
                                     ) {
                                         Text("AUTOEXEC", color = Color.Black, fontSize = 8.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
                                     }
+                                }
+                                
+                                val timing = entryTimingState
+                                if (timing != null && timing.signal.id == signal.id) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    EntryTimingProgressView(state = timing)
                                 }
                             } else {
                                 Text(
@@ -1672,6 +1679,14 @@ fun SignalsScreen(
                                             fontFamily = FontFamily.Monospace
                                         )
                                     }
+                                }
+
+                                val timing = entryTimingState
+                                if (timing != null && timing.signal.id == signal.id) {
+                                    EntryTimingProgressView(
+                                        state = timing,
+                                        modifier = Modifier.padding(vertical = 4.dp)
+                                    )
                                 }
 
                                 // Dynamic risk message box
@@ -3569,7 +3584,7 @@ fun SignalsScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = "Candidates: { ${item.winDigits} }",
+                                            text = "Candidates: ${item.winDigits}",
                                             color = Color.Gray,
                                             fontSize = 9.sp,
                                             fontFamily = FontFamily.Monospace
@@ -3725,6 +3740,195 @@ fun TickDotsProgress(elapsed: Int, total: Int) {
                         shape = CircleShape
                     )
             )
+        }
+    }
+}
+
+@Composable
+fun EntryTimingProgressView(
+    state: com.example.data.EntryTimingResult,
+    modifier: Modifier = Modifier
+) {
+    val isBarrierContract = state.signal.contractType == "UNDER" || state.signal.contractType == "OVER"
+    val isUnder = state.signal.contractType == "UNDER"
+    val oppositePlane = if (isUnder) state.overPlane else state.underPlane
+
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.04f)),
+        modifier = modifier
+            .fillMaxWidth()
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "⏱️ ENTRY TIMING OPTIMIZER",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(
+                            if (state.isEntryReady) Color(0xFF10B981).copy(alpha = 0.15f)
+                            else Color(0xFFF59E0B).copy(alpha = 0.15f)
+                        )
+                        .border(
+                            1.dp,
+                            if (state.isEntryReady) Color(0xFF10B981) else Color(0xFFF59E0B),
+                            RoundedCornerShape(4.dp)
+                        )
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = if (state.isEntryReady) "READY" else "AWAITING ENGINE",
+                        color = if (state.isEntryReady) Color(0xFF34D399) else Color(0xFFFBBF24),
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+
+            if (isBarrierContract) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "Opposite ${oppositePlane.name} Plane Saturation:",
+                        color = Color.LightGray,
+                        fontSize = 9.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Target: >= ${String.format(java.util.Locale.US, "%.0f%%", oppositePlane.targetPercentage)}",
+                            color = Color.Gray,
+                            fontSize = 8.5.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            text = "Current: ${String.format(java.util.Locale.US, "%.1f%%", oppositePlane.accumulatedPercentage)}",
+                            color = if (state.isEntryReady) Color(0xFF34D399) else Color.White,
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+
+                    // Progress bar
+                    val progressValue = (oppositePlane.accumulatedPercentage / oppositePlane.targetPercentage).coerceIn(0f, 1f)
+                    LinearProgressIndicator(
+                        progress = progressValue,
+                        color = if (state.isEntryReady) Color(0xFF10B981) else MaterialTheme.colorScheme.primary,
+                        trackColor = Color.White.copy(alpha = 0.08f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                    )
+
+                    // Planes details
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Under plane details
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color.Black.copy(alpha = 0.2f))
+                                .padding(6.dp)
+                        ) {
+                            Text(
+                                text = "UNDER PLANE",
+                                color = if (!isUnder) Color(0xFF818CF8) else Color.White.copy(alpha = 0.25f),
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                text = "Digits: ${state.underPlane.digits.joinToString(",")}",
+                                color = Color.Gray,
+                                fontSize = 7.5.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            val underTicks = state.underPlane.digitOccurrences.values.sum()
+                            Text(
+                                text = "Ticks: $underTicks",
+                                color = Color.LightGray,
+                                fontSize = 8.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+
+                        // Over plane details
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color.Black.copy(alpha = 0.2f))
+                                .padding(6.dp)
+                        ) {
+                            Text(
+                                text = "OVER PLANE",
+                                color = if (isUnder) Color(0xFF818CF8) else Color.White.copy(alpha = 0.25f),
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                text = "Digits: ${state.overPlane.digits.joinToString(",")}",
+                                color = Color.Gray,
+                                fontSize = 7.5.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            val overTicks = state.overPlane.digitOccurrences.values.sum()
+                            Text(
+                                text = "Ticks: $overTicks",
+                                color = Color.LightGray,
+                                fontSize = 8.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "Strategy: Signal is ${state.signal.contractType}. Execution triggers when ${oppositePlane.name} plane hits peak density saturation.",
+                        color = Color.Gray,
+                        fontSize = 8.sp,
+                        lineHeight = 11.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            } else {
+                Text(
+                    text = "Symmetrical entry gating bypassed for non-barrier system (${state.signal.contractType}).",
+                    color = Color.Gray,
+                    fontSize = 9.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
         }
     }
 }

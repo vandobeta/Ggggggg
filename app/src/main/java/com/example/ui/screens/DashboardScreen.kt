@@ -53,6 +53,7 @@ fun DashboardScreen(
     val marketRankings by viewModel.marketRankings.collectAsState()
     val selectedSymbol by viewModel.selectedSymbol.collectAsState()
     val activePacket by viewModel.selectedPacket.collectAsState()
+    var showAiAdvisorSheet by remember { mutableStateOf(false) }
 
     val scrollState = rememberScrollState()
 
@@ -71,7 +72,8 @@ fun DashboardScreen(
         HeaderWidget(
             connectionState = connectionState,
             pingState = pingState,
-            onReconnect = { viewModel.reconnect() }
+            onReconnect = { viewModel.reconnect() },
+            onOpenAiAdvisor = { showAiAdvisorSheet = true }
         )
 
         Column(
@@ -96,6 +98,56 @@ fun DashboardScreen(
                 selectedSymbol = selectedSymbol,
                 onSymbolSelected = { viewModel.selectSymbol(it) }
             )
+
+            // --- AI CO-PILOT ADVISOR INLINE BANNER ---
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.05f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(
+                        BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+                        RoundedCornerShape(16.dp)
+                    )
+                    .clickable { showAiAdvisorSheet = true }
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("🪄", fontSize = 20.sp)
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "AI QUANT CO-PILOT ADVISOR",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Evaluate connection health, live scanners, trade ratios & get actionable parameter recommendations.",
+                            color = Color.LightGray,
+                            fontSize = 10.sp
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = "Open advisor",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
 
             // --- DETAILED ANALYSIS PACKET VIEWER ---
             if (activePacket != null) {
@@ -360,13 +412,251 @@ fun DashboardScreen(
             }
         }
     }
+
+    if (showAiAdvisorSheet) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showAiAdvisorSheet = false }
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.85f)
+                    .padding(12.dp)
+                    .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(16.dp)),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F1015))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp)
+                ) {
+                    // Header Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "🤖 AI CO-PILOT INTEL",
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            val userSettings by viewModel.userSettings.collectAsState()
+                            Text(
+                                text = "Provider: ${userSettings.aiProvider.uppercase()}",
+                                color = Color.Gray,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                        
+                        IconButton(
+                            onClick = { showAiAdvisorSheet = false },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Text("✕", color = Color.Gray, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.08f)).padding(vertical = 12.dp))
+
+                    val userSettings by viewModel.userSettings.collectAsState()
+                    if (userSettings.aiToken.isEmpty()) {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("⚠️", fontSize = 48.sp)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "AI API KEY NOT CONFIGURED",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Please enter your Gemini API Key or OpenAI API Key in the settings (Tuning Keys panel) to run trading advisory diagnostics.",
+                                color = Color.Gray,
+                                fontSize = 11.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+                        }
+                    } else {
+                        val advisory by viewModel.aiAdvisoryState.collectAsState()
+                        
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                        ) {
+                            if (advisory == null) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .weight(1f),
+                                    verticalArrangement = Arrangement.Center,
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text("🤖", fontSize = 48.sp)
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text(
+                                        text = "READY FOR DIAGNOSTICS",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = "Click below to digest all metrics context, logs, and trade history into the AI model for optimization.",
+                                        color = Color.Gray,
+                                        fontSize = 11.sp,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.padding(horizontal = 16.dp)
+                                    )
+                                }
+                            } else if (advisory!!.isLoading) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .weight(1f),
+                                    verticalArrangement = Arrangement.Center,
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                                    Spacer(modifier = Modifier.height(14.dp))
+                                    Text(
+                                        text = "AI ADVISOR IS THINKING...",
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Synthesizing full application context",
+                                        color = Color.Gray,
+                                        fontSize = 10.sp
+                                    )
+                                }
+                            } else if (advisory!!.error != null) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .weight(1f)
+                                        .verticalScroll(rememberScrollState()),
+                                    verticalArrangement = Arrangement.Center,
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text("❌", fontSize = 44.sp)
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text(
+                                        text = "DIAGNOSTIC ADVISORY FAILURE",
+                                        color = Color(0xFFEF4444),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = advisory!!.error!!,
+                                        color = Color.LightGray,
+                                        fontSize = 11.sp,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.padding(horizontal = 16.dp)
+                                    )
+                                }
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f)
+                                        .background(Color.White.copy(alpha = 0.01f), RoundedCornerShape(8.dp))
+                                        .border(1.dp, Color.White.copy(alpha = 0.03f), RoundedCornerShape(8.dp))
+                                        .padding(12.dp)
+                                ) {
+                                    val reportScroll = rememberScrollState()
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .verticalScroll(reportScroll)
+                                    ) {
+                                        advisory!!.text.split("\n").forEach { line ->
+                                            val trimmed = line.trim()
+                                            val isHeader = trimmed.startsWith("#") || trimmed.startsWith("**") && trimmed.endsWith("**")
+                                            val isListItem = trimmed.startsWith("-") || trimmed.startsWith("*")
+                                            
+                                            val fontSize = if (trimmed.startsWith("###")) 12.sp else if (trimmed.startsWith("##")) 14.sp else if (trimmed.startsWith("#")) 16.sp else 11.sp
+                                            val fontWeight = if (isHeader) FontWeight.Black else FontWeight.Normal
+                                            val fontColor = if (isHeader) MaterialTheme.colorScheme.primary else if (trimmed.contains("⚠️") || trimmed.contains("WARNING")) Color(0xFFF59E0B) else Color.White
+                                            val paddingBottom = if (isHeader) 6.dp else 4.dp
+                                            
+                                            val displayText = if (isListItem) "• " + trimmed.substring(1).trim() else trimmed
+                                            
+                                            if (displayText.isNotEmpty()) {
+                                                Text(
+                                                    text = displayText,
+                                                    fontSize = fontSize,
+                                                    fontWeight = fontWeight,
+                                                    color = fontColor,
+                                                    fontFamily = if (isHeader) FontFamily.Monospace else FontFamily.Default,
+                                                    lineHeight = 16.sp,
+                                                    modifier = Modifier.padding(bottom = paddingBottom)
+                                                )
+                                            } else {
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    if (userSettings.aiToken.isNotEmpty()) {
+                        val advisory by viewModel.aiAdvisoryState.collectAsState()
+                        Button(
+                            onClick = { viewModel.queryAiAdvisor() },
+                            enabled = advisory?.isLoading != true,
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                text = if (advisory?.isLoading == true) "RETRIEVING KNOWLEDGE PACK..." else "🪄 RUN DIAGNOSTICS & ADVISE ME",
+                                color = Color.Black,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
 fun HeaderWidget(
     connectionState: String,
     pingState: Long,
-    onReconnect: () -> Unit
+    onReconnect: () -> Unit,
+    onOpenAiAdvisor: () -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -414,6 +704,28 @@ fun HeaderWidget(
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                    modifier = Modifier.clickable { onOpenAiAdvisor() }
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "🤖 AI ADVISOR",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Black,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
                 Surface(
                     shape = RoundedCornerShape(6.dp),
                     color = Color.White.copy(alpha = 0.05f),
@@ -1214,7 +1526,7 @@ fun QuadrantCard(
     packetHistorySize: Int,
     isGlowing: Boolean = false
 ) {
-    val sizeBase = if (packetHistorySize > 0) packetHistorySize.toFloat() else 100f
+    val sizeBase = if (packetHistorySize > 0) packetHistorySize.toFloat() else 1f
     val animatePct by animateFloatAsState(targetValue = pct, animationSpec = tween(500), label = "quadrantPct")
     val quadColor = getQuadrantColor(title)
 

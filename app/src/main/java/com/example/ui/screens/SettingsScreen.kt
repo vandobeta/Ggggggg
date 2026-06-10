@@ -258,6 +258,95 @@ fun SettingsScreen(
                 }
             }
 
+            // --- NEW CARD: AI CO-PILOT ADVISOR SETTINGS ---
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.03f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(16.dp))
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text(
+                        text = "🤖 AI CO-PILOT ADVISOR CONFIG",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Black,
+                        fontFamily = FontFamily.Monospace
+                    )
+
+                    // Provider Selector
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("SELECT AI SERVICE PROVIDER", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color.White.copy(alpha = 0.05f))
+                                .padding(2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            listOf("gemini", "chatgpt").forEach { provider ->
+                                val sel = userSettings.aiProvider == provider
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (sel) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                        .clickable {
+                                            viewModel.updateSettingsInDb(userSettings.copy(aiProvider = provider))
+                                        }
+                                        .padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = if (provider == "gemini") "GEMINI AI" else "CHATGPT (OPENAI)",
+                                        color = if (sel) Color.Black else Color.Gray,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Black,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Secure AI API Key Input
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("AI SERVICE API KEY / TOKEN", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        OutlinedTextField(
+                            value = userSettings.aiToken,
+                            onValueChange = {
+                                viewModel.updateSettingsInDb(userSettings.copy(aiToken = it.trim()))
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("ai_token_input"),
+                            placeholder = { 
+                                Text(
+                                    if (userSettings.aiProvider == "gemini") "Paste Gemini API Key here (e.g. AIzaSy...)" 
+                                    else "Paste OpenAI API Key here (e.g. sk-...)", 
+                                    color = Color.Gray, 
+                                    fontSize = 11.sp
+                                ) 
+                            },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White,
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = Color.White.copy(alpha = 0.15f)
+                            )
+                        )
+                        Text(
+                            text = "💡 Your API key is stored locally on this device and used to query real-time advice.",
+                            color = Color.Gray,
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+            }
+
             // --- CARD 2: ALGORITHMIC RISK PROFILE & AUDIO ---
             Card(
                 shape = RoundedCornerShape(16.dp),
