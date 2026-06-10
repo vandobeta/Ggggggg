@@ -1114,11 +1114,7 @@ class DerivWebSocketManager {
                         put("duration_unit", "t")
                     }
                     
-                    if (isUsingNewApi) {
-                        put("underlying_symbol", symbol)
-                    } else {
-                        put("symbol", symbol)
-                    }
+                    put("symbol", symbol)
                     
                     if (mappedContractType == "DIGITOVER" || mappedContractType == "DIGITUNDER" || mappedContractType == "DIGITDIFF" || mappedContractType == "DIGITMATCH") {
                         val cleanBarrier = barrier.filter { it.isDigit() }

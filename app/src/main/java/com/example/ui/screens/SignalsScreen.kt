@@ -65,6 +65,19 @@ fun SignalsScreen(
     val targetProfitReached by viewModel.targetProfitReached.collectAsState()
     val stopLossHit by viewModel.stopLossHit.collectAsState()
 
+    var showEntryPopup by remember { mutableStateOf(false) }
+    var popupSignal by remember { mutableStateOf<com.example.ui.viewmodel.LiveTradeSignal?>(null) }
+    
+    val timing = entryTimingState
+    LaunchedEffect(timing?.isEntryReady, activeSignal?.id) {
+        if (activeSignal != null && timing != null && timing.isEntryReady && timing.signal.id == activeSignal?.id) {
+            popupSignal = activeSignal
+            showEntryPopup = true
+        } else if (activeSignal?.id != popupSignal?.id) {
+            showEntryPopup = false
+        }
+    }
+
     var activeTab by remember { mutableStateOf("ALL") } // "ALL" dashboard as default experience
     var paramsExpanded by remember { mutableStateOf(false) } // Collapse state for retractable stake & tick selector
 
@@ -3827,6 +3840,123 @@ fun SignalsScreen(
                 }
             },
             shape = RoundedCornerShape(16.dp)
+        )
+    }
+    
+    if (showEntryPopup && popupSignal != null && timing != null) {
+        val currentSignal = popupSignal!!
+        val accentColor = if (currentSignal.contractType == "UNDER") Color(0xFF10B981) else Color(0xFFFBBF24)
+        var popupManualStake by remember { mutableStateOf("5.00") }
+        AlertDialog(
+            onDismissRequest = { showEntryPopup = false },
+            containerColor = Color(0xFF13141F),
+            titleContentColor = Color.White,
+            textContentColor = Color.LightGray,
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "ENTRY TRIGGER",
+                        tint = accentColor
+                    )
+                    Text(
+                        text = "⚡ TRIGGER SQUEEZE DETECTED!",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Black,
+                        fontFamily = FontFamily.Monospace,
+                        letterSpacing = 1.sp
+                    )
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "The dual vector engine has confirmed perfect alignment for ${currentSignal.displayName}.",
+                        fontSize = 12.sp,
+                        color = Color.LightGray
+                    )
+                    
+                    // Display Recommended Action
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = accentColor.copy(alpha = 0.1f)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth().border(1.dp, accentColor, RoundedCornerShape(8.dp))
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = "RECOMMENDED ACTION:",
+                                color = accentColor,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = when(timing.recommendedAction) {
+                                    "ENTER_UNDER" -> "📉 PLACE DIGIT UNDER ${currentSignal.barrier}"
+                                    "ENTER_OVER" -> "📈 PLACE DIGIT OVER ${currentSignal.barrier}"
+                                    else -> "✨ EXECUTE ${currentSignal.contractType} CONTRACT"
+                                },
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                    
+                    OutlinedTextField(
+                        value = popupManualStake,
+                        onValueChange = { popupManualStake = it },
+                        label = { Text("Stake Amount", color = Color.Gray, fontSize = 10.sp) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(8.dp),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val stakeValue = popupManualStake.toDoubleOrNull() ?: 5.00
+                        val runAction = {
+                            viewModel.executeManualTrade(
+                                symbolCode = currentSignal.symbol,
+                                displayName = currentSignal.displayName,
+                                contractType = currentSignal.contractType,
+                                barrier = currentSignal.barrier.toIntOrNull() ?: 5,
+                                stake = stakeValue
+                            )
+                        }
+                        if (userSettings.derivToken.isEmpty()) {
+                            tokenInputText = ""
+                            tokenPromptAction = runAction
+                            showEntryPopup = false
+                            showTokenPromptDialog = true
+                        } else {
+                            runAction()
+                            showEntryPopup = false
+                            Toast.makeText(context, "Trade Dispatched!", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("EXECUTE NOW", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showEntryPopup = false }
+                ) {
+                    Text("DISMISS", color = Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.border(2.dp, accentColor, RoundedCornerShape(16.dp))
         )
     }
 }
